@@ -1,0 +1,9 @@
+name = "adhd-manager-ai"
+main = "src/index.js"
+compatibility_date = "2025-03-01"
+
+# Secrets are set via: wrangler secret put SECRET_NAME
+# Required secrets:
+#   GROQ_API_KEY
+#   GEMINI_API_KEY
+#   APP_SECRET
