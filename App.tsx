@@ -32,7 +32,7 @@ function TwoLineIcon() {
 }
 
 function HamburgerButton() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   return (
     <TouchableOpacity
       onPress={() => {
@@ -46,6 +46,8 @@ function HamburgerButton() {
   );
 }
 
+import DraggableChatButton from './src/components/DraggableChatButton';
+
 const screenIcon: Record<string, keyof typeof Ionicons.glyphMap> = {
   'AIに話す':     'chatbubble-ellipses-outline',
   '設定':         'settings-outline',
@@ -54,6 +56,8 @@ const screenIcon: Record<string, keyof typeof Ionicons.glyphMap> = {
   '家計簿':       'wallet-outline',
   'シフト':       'time-outline',
 };
+
+import { navigationRef } from './src/services/navigation';
 
 export default function App() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
@@ -98,7 +102,7 @@ export default function App() {
     {!onboardingDone ? (
       <OnboardingScreen onComplete={() => setOnboardingDone(true)} />
     ) : (
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <Drawer.Navigator
           initialRouteName="AIに話す"
           screenOptions={{
@@ -139,6 +143,7 @@ export default function App() {
             />
           ))}
         </Drawer.Navigator>
+        <DraggableChatButton />
       </NavigationContainer>
     )}
     </AppProvider>

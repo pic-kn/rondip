@@ -14,4 +14,9 @@ export const colors = {
   warning: '#5C5C5C',        // モノクロ統一（黄を使わない）
   ink: '#1C1C1C',            // 最も濃い（数字など強調用）
   inkDim: '#5C5C5C',
+  
+  // プレミアムなUI演出用のシャドウカラー
+  shadowLight: 'rgba(0, 0, 0, 0.04)',
+  shadowMedium: 'rgba(0, 0, 0, 0.08)',
+  shadowHeavy: 'rgba(0, 0, 0, 0.12)',
 };

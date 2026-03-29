@@ -1,0 +1,185 @@
+name: Sync shared files to other repos
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'CLAUDE.md'
+      - '.github/workflows/post_to_notion.yml'
+      - 'scripts/fetch_definitions.py'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync files to presetry and color-memo
+        env:
+          SYNC_PAT: ${{ secrets.SYNC_PAT }}
+        run: |
+          python3 << 'PYEOF'
+          import os
+          import base64
+          import requests
+          import re
+
+          token = os.environ["SYNC_PAT"]
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28"
+          }
+
+          target_repos = ["pic-kn/presetry", "pic-kn/color-memo", "pic-kn/adhd-manager"]
+
+          def parse_definition_table(text):
+              """定義一覧テーブルを行ごとに返す（ヘッダー・セパレータ・データ行）"""
+              lines = text.split("\n")
+              in_table = False
+              table_start = None
+              table_lines = []
+              for i, line in enumerate(lines):
+                  if line.strip().startswith("| 定義名"):
+                      in_table = True
+                      table_start = i
+                  if in_table:
+                      if line.strip().startswith("|"):
+                          table_lines.append((i, line))
+                      else:
+                          break
+              return table_start, table_lines
+
+          def filter_common_definitions(text):
+              """スコープ=共通の定義のみ残したCLAUDE.mdテキストを返す"""
+              lines = text.split("\n")
+              table_start, table_lines = parse_definition_table(text)
+              if not table_lines:
+                  return text
+
+              new_lines = []
+              for i, line in enumerate(lines):
+                  is_table_line = any(idx == i for idx, _ in table_lines)
+                  if not is_table_line:
+                      new_lines.append(line)
+                      continue
+                  # ヘッダー行・セパレータ行はそのまま残す
+                  if "定義名" in line or re.match(r"^\|[-| ]+\|$", line.strip()):
+                      new_lines.append(line)
+                      continue
+                  # データ行はスコープ=共通のみ残す
+                  cols = [c.strip() for c in line.split("|")]
+                  # | 定義名 | カテゴリ | スコープ | 内容 | 事例 |
+                  # cols[0]='' cols[1]=定義名 cols[2]=カテゴリ cols[3]=スコープ ...
+                  if len(cols) > 3 and cols[3] == "共通":
+                      new_lines.append(line)
+              return "\n".join(new_lines)
+
+          def extract_repo_specific_definitions(text, repo_name):
+              """対象リポジトリ固有（スコープ=リポジトリ名）の定義行を返す"""
+              lines = text.split("\n")
+              _, table_lines = parse_definition_table(text)
+              repo_short = repo_name.split("/")[-1]
+              result = []
+              for _, line in table_lines:
+                  if "定義名" in line or re.match(r"^\|[-| ]+\|$", line.strip()):
+                      continue
+                  cols = [c.strip() for c in line.split("|")]
+                  if len(cols) > 3 and cols[3] == repo_short:
+                      result.append(line)
+              return result
+
+          def merge_definitions(source_text, target_text, repo_name):
+              """ソースの共通定義＋ターゲットのリポジトリ固有定義を結合したテキストを返す"""
+              filtered = filter_common_definitions(source_text)
+              repo_specific = extract_repo_specific_definitions(target_text, repo_name)
+              if not repo_specific:
+                  return filtered
+              # 定義テーブルの末尾に固有定義を追記
+              lines = filtered.split("\n")
+              insert_idx = None
+              in_table = False
+              for i, line in enumerate(lines):
+                  if line.strip().startswith("| 定義名"):
+                      in_table = True
+                  if in_table and line.strip().startswith("|"):
+                      insert_idx = i
+                  elif in_table:
+                      break
+              if insert_idx is not None:
+                  for row in reversed(repo_specific):
+                      lines.insert(insert_idx + 1, row)
+              return "\n".join(lines)
+
+          # CLAUDE.mdの同期（スコープ考慮）
+          with open("CLAUDE.md", "r") as f:
+              source_claude = f.read()
+
+          for repo in target_repos:
+              # ターゲットの現在のCLAUDE.mdを取得
+              get_res = requests.get(
+                  f"https://api.github.com/repos/{repo}/contents/CLAUDE.md",
+                  headers=headers
+              )
+              if get_res.status_code == 200:
+                  target_claude = base64.b64decode(get_res.json()["content"]).decode()
+                  sha = get_res.json()["sha"]
+                  merged = merge_definitions(source_claude, target_claude, repo)
+              else:
+                  merged = filter_common_definitions(source_claude)
+                  sha = None
+
+              payload = {
+                  "message": "sync: CLAUDE.md（共通定義）をai-prompt-builderから自動反映",
+                  "content": base64.b64encode(merged.encode()).decode()
+              }
+              if sha:
+                  payload["sha"] = sha
+
+              put_res = requests.put(
+                  f"https://api.github.com/repos/{repo}/contents/CLAUDE.md",
+                  headers=headers,
+                  json=payload
+              )
+              if put_res.status_code in (200, 201):
+                  print(f"OK: {repo}/CLAUDE.md")
+              else:
+                  print(f"FAIL: {repo}/CLAUDE.md: {put_res.text}")
+                  exit(1)
+
+          # post_to_notion.yml・fetch_definitions.pyの同期（そのまま全同期）
+          simple_files = [
+              ".github/workflows/post_to_notion.yml",
+              "scripts/fetch_definitions.py"
+          ]
+
+          for repo in target_repos:
+              for file_path in simple_files:
+                  with open(file_path, "rb") as f:
+                      file_content = base64.b64encode(f.read()).decode()
+
+                  get_res = requests.get(
+                      f"https://api.github.com/repos/{repo}/contents/{file_path}",
+                      headers=headers
+                  )
+                  payload = {
+                      "message": f"sync: {file_path} をai-prompt-builderから自動反映",
+                      "content": file_content
+                  }
+                  if get_res.status_code == 200:
+                      payload["sha"] = get_res.json()["sha"]
+
+                  put_res = requests.put(
+                      f"https://api.github.com/repos/{repo}/contents/{file_path}",
+                      headers=headers,
+                      json=payload
+                  )
+                  if put_res.status_code in (200, 201):
+                      print(f"OK: {repo}/{file_path}")
+                  else:
+                      print(f"FAIL: {repo}/{file_path}: {put_res.text}")
+                      exit(1)
+
+          PYEOF

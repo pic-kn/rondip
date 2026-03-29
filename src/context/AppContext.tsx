@@ -1,121 +1,20 @@
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export interface Task {
-  id: string;
-  title: string;
-  estimatedCost: number;
-  estimatedMinutes: number;
-  status: 'todo' | 'completed';
-  originalText?: string;
-  dueDate?: string; // YYYY-MM-DD（予定から作られたタスクの日付）
-}
+import { 
+  Task, AppEvent, ChatMessage, ChatSession, Routine, 
+  ShiftEntry, WorkplacePreset, WorkSchedule, SleepSettings, 
+  DeviceAsset, FutureExpense, FinancialAssets, BudgetMessage, 
+  BudgetSession, BudgetTransaction 
+} from '../types';
 
-export interface AppEvent {
-  id: string;
-  title: string;
-  date: string; // YYYY-MM-DD
-  timeString: string;
-  location?: string;
-  estimatedMinutes?: number;
-}
+export type { 
+  Task, AppEvent, ChatMessage, ChatSession, Routine, 
+  ShiftEntry, WorkplacePreset, WorkSchedule, SleepSettings, 
+  DeviceAsset, FutureExpense, FinancialAssets, BudgetMessage, 
+  BudgetSession, BudgetTransaction 
+};
 
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  actionType?: 'task' | 'expense' | 'schedule' | 'greeting' | 'travel';
-  actionData?: any;
-}
-
-export interface ChatSession {
-  id: string;
-  title: string;
-  createdAt: string;
-  messages: ChatMessage[];
-}
-
-export interface Routine {
-  id: string;
-  title: string;
-  estimatedMinutes: number;
-}
-
-export interface ShiftEntry {
-  id: string;
-  date: string; // YYYY-MM-DD
-  startTime: string; // HH:MM
-  endTime: string; // HH:MM
-}
-
-export interface WorkplacePreset {
-  id: string;
-  name: string;
-  startTime: string;
-  endTime: string;
-  daysOff: string[]; // YYYY-MM-DD（休みの日）
-}
-
-export interface WorkSchedule {
-  type: 'fixed' | 'shift';
-  // 固定モード
-  fixedDays: number[]; // 0=Sun, 1=Mon ... 6=Sat
-  fixedStartTime: string;
-  fixedEndTime: string;
-  // シフトモード（勤務先ベース）
-  activeWorkplaceId: string | null; // 現在の勤務先
-  workplaces: WorkplacePreset[];
-}
-
-export interface SleepSettings {
-  wakeTime: string; // HH:MM
-  bedTime: string; // HH:MM
-}
-
-export interface DeviceAsset {
-  id: string;
-  name: string;
-  resaleValue: number;
-}
-
-export interface FutureExpense {
-  id: string;
-  description: string;
-  amount: number;
-  dueMonth: string; // YYYY-MM
-}
-
-export interface FinancialAssets {
-  jpyCash: number;
-  usdAmount: number;
-  deviceAssets: DeviceAsset[];
-  creditCardPending: number;
-  monthlyFixedCosts: number;
-  futureExpenses: FutureExpense[];
-  setupDone: boolean;
-}
-
-export interface BudgetMessage {
-  role: 'ai' | 'user';
-  text: string;
-  date: string;
-}
-
-export interface BudgetSession {
-  id: string;
-  title: string;
-  createdAt: string;
-  messages: BudgetMessage[];
-}
-
-export interface BudgetTransaction {
-  id: string;
-  type: 'expense' | 'usd_buy' | 'future_lock' | 'income' | 'device_add';
-  description: string;
-  amount: number;
-  usdAmount?: number;
-  date: string;
-}
 
 const DEFAULT_FINANCIAL_ASSETS: FinancialAssets = {
   jpyCash: 0,
@@ -151,7 +50,7 @@ const toLocalDateStr = (date: Date): string => {
 interface AppContextProps {
   tasks: Task[];
   addTask: (task: Task) => void;
-  updateTask: (id: string, changes: Partial<Pick<Task, 'title' | 'estimatedMinutes'>>) => void;
+  updateTask: (id: string, changes: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   completeTask: (id: string) => void;
 
@@ -160,6 +59,8 @@ interface AppContextProps {
 
   events: AppEvent[];
   addEvent: (event: AppEvent) => void;
+  updateEvent: (id: string, updates: Partial<AppEvent>) => void;
+  deleteEvent: (id: string) => void;
 
   // 現在のセッションのメッセージ（後方互換）
   chatHistory: ChatMessage[];
@@ -207,6 +108,9 @@ interface AppContextProps {
   deleteBudgetSession: (id: string) => void;
 
   clearData: () => void;
+  
+  userProfile: string[];
+  addUserInsight: (insight: string) => void;
 
   // AI State
   aiFeatureState: {
@@ -248,6 +152,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [financialAssets, setFinancialAssets] = useState<FinancialAssets>(DEFAULT_FINANCIAL_ASSETS);
   const [budgetTransactions, setBudgetTransactions] = useState<BudgetTransaction[]>([]);
   const [paydayDate, setPaydayDate] = useState<number>(25);
+  const [userProfile, setUserProfile] = useState<string[]>([]);
   const initialBudgetSession = makeBudgetSession();
   const [budgetSessions, setBudgetSessions] = useState<BudgetSession[]>([initialBudgetSession]);
   const [currentBudgetSessionId, setCurrentBudgetSessionId] = useState<string>(initialBudgetSession.id);
@@ -267,8 +172,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         const today = new Date().toISOString().split('T')[0];
         let loadedEvents: AppEvent[] = [];
 
+        let parsed: any = undefined;
         if (storedJson) {
-          const parsed = JSON.parse(storedJson);
+          parsed = JSON.parse(storedJson);
           if (parsed.tasks) setTasks(parsed.tasks);
           if (parsed.budgetBalance !== undefined) setBudgetBalance(parsed.budgetBalance);
           if (parsed.spareTime !== undefined) setSpareTime(parsed.spareTime);
@@ -279,6 +185,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
           if (parsed.financialAssets) setFinancialAssets(parsed.financialAssets);
           if (parsed.budgetTransactions) setBudgetTransactions(parsed.budgetTransactions);
           if (parsed.paydayDate !== undefined) setPaydayDate(parsed.paydayDate);
+          if (parsed.userProfile) setUserProfile(parsed.userProfile);
           if (parsed.budgetSessions && parsed.currentBudgetSessionId) {
             setBudgetSessions(parsed.budgetSessions);
             setCurrentBudgetSessionId(parsed.currentBudgetSessionId);
@@ -375,14 +282,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     if (!isReady) return;
     const saveData = async () => {
       try {
-        const dataToSave = { tasks, events, budgetBalance, chatSessions, currentSessionId, spareTime, routines, lastSyncDate, workSchedule, sleepSettings, financialAssets, budgetTransactions, paydayDate, budgetSessions, currentBudgetSessionId };
+        const dataToSave = { tasks, events, budgetBalance, chatSessions, currentSessionId, spareTime, routines, lastSyncDate, workSchedule, sleepSettings, financialAssets, budgetTransactions, paydayDate, budgetSessions, currentBudgetSessionId, userProfile };
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
       } catch (error) {
         console.error('Failed to save user data', error);
       }
     };
     saveData();
-  }, [tasks, events, budgetBalance, chatSessions, currentSessionId, spareTime, workSchedule, sleepSettings, financialAssets, budgetTransactions, paydayDate, budgetSessions, currentBudgetSessionId, isReady]);
+  }, [tasks, events, budgetBalance, chatSessions, currentSessionId, spareTime, workSchedule, sleepSettings, financialAssets, budgetTransactions, paydayDate, budgetSessions, currentBudgetSessionId, userProfile, isReady]);
 
   // workSchedule変更時に今日のシフトイベントを再生成
   useEffect(() => {
@@ -425,8 +332,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     return [...base, task];
   });
 
-  const updateTask = (id: string, changes: Partial<Pick<Task, 'title' | 'estimatedMinutes'>>) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...changes } : t));
+  const updateTask = (id: string, changes: Partial<Task>) => {
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...changes } : t)));
   };
 
   const deleteTask = (id: string) => {
@@ -445,6 +352,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const addEvent = (event: AppEvent) => {
     setEvents((prev) => [...prev, event]);
+  };
+  const updateEvent = (id: string, updates: Partial<AppEvent>) => {
+    setEvents((prev) => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+  };
+  const deleteEvent = (id: string) => {
+    setEvents((prev) => prev.filter(e => e.id !== id));
   };
 
   const addChatMessage = (msg: ChatMessage) => {
@@ -674,13 +587,20 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     await AsyncStorage.removeItem('@last_routine_event_sync');
   };
 
+  const addUserInsight = (insight: string) => {
+    setUserProfile(prev => {
+      if (prev.includes(insight)) return prev;
+      return [...prev, insight];
+    });
+  };
+
   if (!isReady) return null;
 
   return (
     <AppContext.Provider value={{
       tasks, addTask, updateTask, deleteTask, completeTask,
       budgetBalance, addExpense,
-      events, addEvent,
+      events, addEvent, updateEvent, deleteEvent,
       chatHistory, addChatMessage,
       chatSessions, currentSessionId, createNewSession, switchSession, deleteSession,
       spareTime, setSpareTime,
@@ -690,6 +610,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       financialAssets, updateFinancialAssets, budgetTransactions, addBudgetTransaction, removeBudgetTransaction, paydayDate, updatePaydayDate,
       budgetSessions, currentBudgetSessionId, budgetMessages, addBudgetMessage, createNewBudgetSession, switchBudgetSession, deleteBudgetSession,
       clearData,
+      userProfile,
+      addUserInsight,
       aiFeatureState: {
         hasInitialFetched,
         setInitialFetched,

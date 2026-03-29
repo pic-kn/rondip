@@ -1,13 +1,14 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { Task, AppEvent } from '../context/AppContext';
+import { Task, AppEvent } from '../types';
 
 export interface ParsedIntent {
-  type: 'task' | 'expense' | 'schedule' | 'general' | 'update_task' | 'delete_task';
+  type: 'task' | 'expense' | 'income' | 'budget_update' | 'schedule' | 'general' | 'update_task' | 'delete_task' | 'update_schedule' | 'delete_schedule';
   responseMessage: string;
   data?: any;
   travelTime?: number;
   destination?: string;
   needsNavigation?: boolean;
+  userInsight?: string;
 }
 
 // --- Worker (本番) ---
@@ -77,11 +78,17 @@ async function callAI(messages: Message[]): Promise<string> {
 
 // ---
 
-export const processUserText = async (text: string, currentCity?: string | null, existingTasks?: Task[], recentMessages?: { role: string; content: string }[]): Promise<ParsedIntent> => {
-  const today = new Date().toISOString().split('T')[0];
+export const processUserText = async (text: string, currentCity?: string | null, existingTasks?: Task[], recentMessages?: { role: string; content: string }[], existingEvents?: AppEvent[], financialAssets?: any, userProfile?: string[]): Promise<ParsedIntent> => {
+  const now = new Date();
+  const days = ['日', '月', '火', '水', '木', '金', '土'];
+  const today = now.toISOString().split('T')[0];
+  const timeContext = `現在時刻: ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')} (${days[now.getDay()]}曜日)`;
   const locationContext = currentCity ? `現在地: ${currentCity}` : '現在地: 不明';
   const taskListContext = existingTasks && existingTasks.length > 0
     ? `\n【登録済みタスク】: ${existingTasks.map(t => `"${t.title}"`).join('、')}`
+    : '';
+  const eventListContext = existingEvents && existingEvents.length > 0
+    ? `\n【登録済み予定】: ${existingEvents.map(e => `[${e.date} ${e.timeString}] "${e.title}"`).join('、')}`
     : '';
   const historyContext = recentMessages && recentMessages.length > 0
     ? `\n【直近の会話】:\n${recentMessages.map(m => `${m.role === 'user' ? 'ユーザー' : 'AI'}: ${m.content}`).join('\n')}`
@@ -91,37 +98,53 @@ export const processUserText = async (text: string, currentCity?: string | null,
     const responseText = await callAI([
       {
         role: 'system',
-        content: `あなたは優秀なADHD支援アシスタントです。ユーザーの入力を解析し、JSONで返してください。
-【今の日付】: ${today}
-【現在地】: ${locationContext}${taskListContext}${historyContext}
+        content: `【現在の状況】
+- 日付: ${today}
+- ${timeContext}
+- ${locationContext}${taskListContext}${eventListContext}
+${userProfile && userProfile.length > 0 ? `\n【あなたのこれまでの理解（記憶）】:\n${userProfile.map(p => `- ${p}`).join('\n')}` : ''}
+${historyContext}
+
+【あなたの使命】
+あなたはADHDを持つユーザーを支える、親しみやすく聡明な秘書です。
+ユーザーの発言から、「得意なこと」「苦手なこと」「習慣」「好み」などの新しい発見（Insight）があれば、必ず抽出してください。
+また、提供された「これまでの理解」に基づき、「あなたは〇〇が得意でしたね」といったパーソナライズされた提案を行ってください。
 
 【分類ルール】
-- "update_task": 既存タスクの修正・変更要求。「〇〇を△△に変更」「タスクの時間を〜分に」「さっきのやつ」「先ほどの」など直近会話を参照する場合も含む
-- "delete_task": 既存タスクの削除要求。「〇〇は無くなった」「〇〇をキャンセル」「〇〇を削除して」など
-- "schedule": 特定の時刻・日時・場所を伴う外出・アポイント・イベント。「〇時に」「明日」「来週」+外出先・人との約束が含まれる場合は必ずschedule。（例: 3時に歯医者、明日の会議、夜7時に飲み会、〜に行く）
-- "task": 時間指定なく自分で完結できる行動。（例: 薬を飲む、掃除する、メールを送る）
-- "expense": 金額が含まれる支出記録。
+- "update_task": 既存タスクの修正・変更要求。「〇〇を△△に変更」など
+- "delete_task": 既存タスクの削除要求。「〇〇は無くなった」など
+- "update_schedule": 既存の予定・イベントの変更
+- "delete_schedule": 既存の予定・イベントの削除
+- "schedule": 日時・場所を伴う外出・イベントの【新規作成】
+- "task": 時間指定なく自分で完結できる行動の【新規作成】
+- "expense": 支出記録（コーヒー 500円、家賃 8万など）。
+- "income": 収入記録（給料 20万、月収 35など）。
+- "budget_update": 資産の初期設定や現在の残高報告（現金が5万ある、USDを$100持っている、など）。
 - "general": 上記以外の雑談・質問。
+
+【金額パースの鉄則 (重要)】
+1. 「35」「35万」などの収入/支出は、日本円(JPY)として解釈。
+2. 月収・給与の文脈で「35」「40」などの2〜3桁の数値が来たら、それは「万」単位（350,000 / 400,000）として扱うこと。
+3. 明示的に「円」「万」がある場合はそれに従う。
 
 返却フォーマット:
 {
-  "type": "task" | "schedule" | "expense" | "general" | "update_task" | "delete_task",
+  "type": "task" | "schedule" | "expense" | "income" | "budget_update" | "general" | "update_task" | "delete_task" | "update_schedule" | "delete_schedule",
   "responseMessage": "ユーザーへの返答(親しみやすく)",
   "destination": "目的地名(あれば)",
-  "needsNavigation": コンビニ・スーパー・駅など日常的に行く場所はfalse、病院・会議場所・初めて行く場所などはtrue,
-  "travelTime": 推定移動時間(分、needsNavigationがfalseならnull),
+  "needsNavigation": boolean,
+  "travelTime": 数値またはnull,
+  "userInsight": "ユーザーについて新しく知った事実・特性 (例: '朝が苦手', 'コーヒーが好き')。なければnull",
   "data": {
-    // task/schedule/expense の場合:
-    "title": "短くシンプルなタスク名（詳細は省く。例: スーパーで買い物、歯医者の予約、部屋の掃除）",
-    "date": "YYYY-MM-DD (指示がなければ今日、明日なら翌日)",
-    "estimatedMinutes": 推定所要時間(数値),
-    "timeString": "24時間制HH:mm形式(例: 3時→'03:00', 午後3時→'15:00', 3時半→'03:30', 15時→'15:00')。時刻の言及がなければnull",
-    "amount": 数値,
-    "description": "内容",
-    // update_task / delete_task の場合:
-    "targetTitle": "対象の既存タスク名（登録済みタスクか直近会話から特定する）",
-    "newTitle": "新しいタスク名（update_taskでタイトルを変更する場合のみ）",
-    "estimatedMinutes": 新しい所要時間（update_taskで変更する場合のみ、数値）
+    // task/schedule/expense/income の場合:
+    "title": "項目名",
+    "amount": 数値(JPY、income/expense時),
+    "date": "YYYY-MM-DD",
+    // budget_update の場合:
+    "jpyCash": 数値(任意),
+    "usdAmount": 数値(任意),
+    "monthlyFixedCosts": 数値(任意),
+    "setupDone": boolean
   }
 }
 
@@ -133,20 +156,36 @@ export const processUserText = async (text: string, currentCity?: string | null,
       { role: 'user', content: text },
     ]);
 
-    let jsonString = responseText.trim();
-    // コードブロック除去
-    const codeBlockMatch = responseText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (codeBlockMatch) {
-      jsonString = codeBlockMatch[1].trim();
-    } else {
-      // JSON オブジェクトを直接抽出
-      const jsonObjectMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonObjectMatch) jsonString = jsonObjectMatch[0];
+    let parsedResult;
+    try {
+      let jsonString = responseText.trim();
+      const codeBlockMatch = responseText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+      if (codeBlockMatch) {
+        jsonString = codeBlockMatch[1].trim();
+      } else {
+        const jsonObjectMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonObjectMatch) jsonString = jsonObjectMatch[0];
+      }
+      parsedResult = JSON.parse(jsonString);
+      const finalResult: ParsedIntent = {
+        type: parsedResult.type || 'general',
+        responseMessage: parsedResult.responseMessage || '了解しました。',
+        destination: parsedResult.destination,
+        needsNavigation: parsedResult.needsNavigation,
+        travelTime: parsedResult.travelTime,
+        userInsight: parsedResult.userInsight,
+        data: parsedResult.data
+      };
+      return finalResult;
+    } catch (parseError) {
+      // JSONパースに失敗した場合（AIが完全な自然言語を返した場合）のフォールバック
+      console.warn('Fallback to natural text parsing', responseText);
+      const cleanText = responseText.replace(/```(?:json)?|```/g, '').trim();
+      return { type: 'general', responseMessage: cleanText || '申し訳ありません、うまく分類できませんでした。' };
     }
-    return JSON.parse(jsonString);
   } catch (e) {
-    console.error('processUserText error:', e);
-    return { type: 'general', responseMessage: 'すみません、エラーが発生しました。' };
+    console.error('processUserText network error:', e);
+    return { type: 'general', responseMessage: 'オフラインまたはサーバーとの通信に失敗しました。' };
   }
 };
 
@@ -246,28 +285,54 @@ export const processBudgetText = async (
       { role: 'user', content: text },
     ]);
 
-    let jsonString = responseText.trim();
-    const codeBlockMatch = responseText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (codeBlockMatch) {
-      jsonString = codeBlockMatch[1].trim();
-    } else {
-      const jsonObjectMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonObjectMatch) jsonString = jsonObjectMatch[0];
+    let parsedResult;
+    try {
+      let jsonString = responseText.trim();
+      const codeBlockMatch = responseText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+      if (codeBlockMatch) {
+        jsonString = codeBlockMatch[1].trim();
+      } else {
+        const jsonObjectMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonObjectMatch) jsonString = jsonObjectMatch[0];
+      }
+      parsedResult = JSON.parse(jsonString);
+    } catch (parseError) {
+      console.warn('Fallback to natural budgetary text parsing');
+      const cleanText = responseText.replace(/```(?:json)?|```/g, '').trim();
+      return { type: 'general', responseMessage: cleanText || '家計簿入力の解釈に失敗しました。', confirmLabel: '' };
     }
-    return JSON.parse(jsonString);
+    return parsedResult;
   } catch (e) {
-    console.error('processBudgetText error:', e);
-    return { type: 'general', responseMessage: 'すみません、エラーが発生しました。', confirmLabel: '' };
+    console.error('processBudgetText network error:', e);
+    return { type: 'general', responseMessage: '通信エラーが発生しました。', confirmLabel: '' };
   }
 };
 
 export const generateSuggestions = async (tasks: Task[], budget: number, events: AppEvent[], time: string, weather: string, currentCity?: string | null): Promise<string[]> => {
+  const taskStr = tasks.slice(0, 5).map(t => t.title).join('、');
+  const eventStr = events.slice(0, 3).map(e => `${e.timeString} ${e.title}`).join('、');
+  const context = `
+【現在状況】
+- 時刻: ${time}
+- 天気: ${weather}
+- 場所: ${currentCity || '不明'}
+- 予算（防衛資金）: ¥${budget.toLocaleString()}
+- 未完了タスク: ${taskStr || 'なし'}
+- 今後の予定: ${eventStr || 'なし'}
+
+以上の情報を踏まえ、ユーザーが「今やるべき/できること」を具体的に3つ提案してください。
+【ルール】
+1. ADHDの人でも心理的負担が少ない、スモールステップなアクションを優先。
+2. 雨なら「家でできること」、予算が少なければ「節約」、夜なら「リラックス」など状況に合わせる。
+3. 5〜10文字程度の短いボタン用テキストとして。
+4. カンマ区切りの文字列のみ。`;
+
   try {
     const text = await callAI([
-      { role: 'system', content: '今できる具体的なアクションを3つ、カンマ区切りで返してください。文章ではなく短いフレーズで。' },
-      { role: 'user', content: `タスク:${tasks.length}件, 場所:${currentCity || '不明'}, 時間:${time}` },
+      { role: 'system', content: '超具体的なアクションを3つ、カンマ区切りで返してください。番号不要。' },
+      { role: 'user', content: context },
     ]);
-    return text.split(/[、,]/).map((s: string) => s.trim()).filter(Boolean).slice(0, 3);
+    return text.split(/[、,]/).map((s: string) => s.replace(/^\d+\.\s*/, '').trim()).filter(Boolean).slice(0, 3);
   } catch {
     return ['タスクを確認する', '一息つく', '水分を補給する'];
   }

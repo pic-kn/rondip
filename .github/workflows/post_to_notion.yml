@@ -1,0 +1,124 @@
+name: Post Commit to Notion
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  post-to-notion:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Extract and post to Notion
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          NOTION_PROJECT_DB_ID: ${{ secrets.NOTION_PROJECT_DB_ID }}
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          python3 << 'PYEOF'
+          import os
+          import re
+          import subprocess
+          import requests
+
+          NOTION_API_KEY = os.environ["NOTION_API_KEY"]
+          NOTION_DATABASE_ID = os.environ["NOTION_DATABASE_ID"]
+          REPO_NAME = os.environ["REPO_NAME"]
+
+          result = subprocess.run(["git", "log", "-1", "--pretty=%B"], capture_output=True, text=True)
+          commit_msg = result.stdout.strip()
+          print(f"Commit message: {commit_msg}")
+
+          date_result = subprocess.run(["git", "log", "-1", "--pretty=%aI"], capture_output=True, text=True)
+          commit_date = date_result.stdout.strip()
+
+          def extract(tag, text):
+              m = re.search(f"(?<={tag})[^\n\u3010\u300e\u300f]*", text)
+              return m.group(0).strip() if m else ""
+
+          project = extract("\u3010\u30d7\u30ed\u30b8\u30a7\u30af\u30c8\u3011", commit_msg)
+          kadai = extract("\u3010\u8ab2\u984c\u3011", commit_msg)
+          kaiketsu = extract("\u3010\u89e3\u6c7a\u3011", commit_msg)
+          shiji = extract("\u3010\u6307\u793a\u3011", commit_msg)
+          tejigyo = extract("\u3010\u624b\u4f5c\u696d\u3011", commit_msg) or "\u306a\u3057"
+
+          print(f"\u30d7\u30ed\u30b8\u30a7\u30af\u30c8: {project}")
+          print(f"\u8ab2\u984c: {kadai}")
+          print(f"\u89e3\u6c7a: {kaiketsu}")
+          print(f"\u6307\u793a: {shiji}")
+          print(f"\u624b\u4f5c\u696d: {tejigyo}")
+
+          if not kadai or not kaiketsu or not shiji or not project:
+              print("Required fields not found. Skipping.")
+              exit(0)
+
+          notion_headers = {
+              "Authorization": f"Bearer {NOTION_API_KEY}",
+              "Content-Type": "application/json",
+              "Notion-Version": "2022-06-28"
+          }
+
+          payload = {
+              "parent": {"database_id": NOTION_DATABASE_ID},
+              "properties": {
+                  "\u8ab2\u984c": {"title": [{"text": {"content": kadai}}]},
+                  "\u89e3\u6c7a": {"rich_text": [{"text": {"content": kaiketsu}}]},
+                  "\u6307\u793a": {"rich_text": [{"text": {"content": shiji}}]},
+                  "\u624b\u4f5c\u696d": {"rich_text": [{"text": {"content": tejigyo}}]},
+                  "\u30d7\u30ed\u30b8\u30a7\u30af\u30c8": {"rich_text": [{"text": {"content": project}}]},
+                  "\u30ea\u30dd\u30b8\u30c8\u30ea": {"rich_text": [{"text": {"content": REPO_NAME}}]},
+                  "Status": {"select": {"name": "Ready"}},
+                  "\u4f5c\u6210\u65e5": {"date": {"start": commit_date}}
+              }
+          }
+
+          res = requests.post(
+              "https://api.notion.com/v1/pages",
+              headers=notion_headers,
+              json=payload
+          )
+
+          print(f"HTTP Status: {res.status_code}")
+          if res.status_code == 200:
+              print("Successfully posted to Notion!")
+          else:
+              print(f"Error: {res.text}")
+              exit(1)
+
+          # プロジェクト管理DBに未登録なら自動作成
+          NOTION_PROJECT_DB_ID = os.environ.get("NOTION_PROJECT_DB_ID", "")
+          if not NOTION_PROJECT_DB_ID or not project:
+              exit(0)
+
+          check_res = requests.post(
+              f"https://api.notion.com/v1/databases/{NOTION_PROJECT_DB_ID}/query",
+              headers=notion_headers,
+              json={"filter": {"property": "プロジェクト名", "title": {"equals": project}}, "page_size": 1}
+          )
+
+          if check_res.status_code == 200 and not check_res.json().get("results"):
+              create_res = requests.post(
+                  "https://api.notion.com/v1/pages",
+                  headers=notion_headers,
+                  json={
+                      "parent": {"database_id": NOTION_PROJECT_DB_ID},
+                      "properties": {
+                          "プロジェクト名": {"title": [{"text": {"content": project}}]},
+                          "ステータス": {"status": {"name": "進行中"}}
+                      }
+                  }
+              )
+              if create_res.status_code == 200:
+                  print(f"プロジェクト管理DBに追加: {project}")
+              else:
+                  print(f"プロジェクト追加失敗: {create_res.text}")
+          else:
+              print(f"プロジェクト管理DB: 既存のため追加スキップ")
+          PYEOF
