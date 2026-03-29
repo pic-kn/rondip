@@ -3,7 +3,7 @@ name: Post Commit to Notion
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   post-to-notion:
