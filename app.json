@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Rondip",
-    "slug": "rondip",
+    "name": "adhd-manager",
+    "slug": "adhd-manager",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -13,7 +13,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.rondip.app"
+      "bundleIdentifier": "com.adhd.manager",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -26,6 +29,11 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "ebb1f53a-8e29-46ce-bb74-6d2827331ae7"
+      }
     }
   }
 }
