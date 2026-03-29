@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Platform,
+  View, Text, StyleSheet, TouchableOpacity, Platform, ScrollView,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useNavigation } from '@react-navigation/native';
@@ -87,63 +87,92 @@ export default function BudgetScreen() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      {/* Dashboard - 設定完了時のみ表示 */}
-      {financialAssets.setupDone && (
-        <View style={styles.dashboard}>
-          {/* 実質防衛資金 */}
-          <View style={styles.defenseCard}>
-            <Text style={styles.defenseLabel}>実質防衛資金</Text>
-            <Text style={[styles.defenseAmount, realDefense < 0 && { color: '#ef4444' }]}>
-              {fmt(realDefense)}
-            </Text>
-            <Text style={styles.totalSub}>総資産 {fmt(totalAssets)}</Text>
-          </View>
-
-          {/* Asset chips */}
-          <View style={styles.chipsRow}>
-            <View style={styles.chip}>
-              <Text style={styles.chipLabel}>円</Text>
-              <Text style={styles.chipValue}>{fmtShort(financialAssets.jpyCash)}</Text>
-            </View>
-            <View style={styles.chip}>
-              <Text style={styles.chipLabel}>USD</Text>
-              <Text style={styles.chipValue}>${(financialAssets.usdAmount ?? 0).toFixed(0)}</Text>
-              <Text style={styles.chipSub}>{fmtShort(usdInJpy)}</Text>
-            </View>
-            {deviceTotal > 0 && (
-              <View style={styles.chip}>
-                <Text style={styles.chipLabel}>資産</Text>
-                <Text style={styles.chipValue}>{fmtShort(deviceTotal)}</Text>
-              </View>
-            )}
-            {rateLoaded && (
-              <View style={styles.chip}>
-                <Text style={styles.chipLabel}>USD/JPY</Text>
-                <Text style={styles.chipValue}>{(exchangeRate ?? 150).toFixed(1)}</Text>
-              </View>
-            )}
-          </View>
-
-          {/* USD ratio bar */}
-          <View style={styles.usdSection}>
-            <View style={styles.usdLabelRow}>
-              <Text style={styles.usdLabel}>USD比率 {(usdRatio ?? 0).toFixed(1)}%</Text>
-              <Text style={styles.usdTarget}>目標 30%</Text>
-            </View>
-            <View style={styles.barTrack}>
-              <View style={[styles.barFill, { width: `${Math.min((usdRatio / 30) * 100, 100)}%` }]} />
-              <View style={styles.barMarker} />
-            </View>
-            {usdNeeded > 0 ? (
-              <Text style={styles.usdHint}>
-                あと ${Math.round(usdNeeded / exchangeRate).toLocaleString()} で目標達成 · 次の給料日 {getNextPayday(paydayDate)}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
+        {/* Dashboard - 設定完了時のみ表示 */}
+        {financialAssets.setupDone && (
+          <View style={styles.dashboard}>
+            {/* 実質防衛資金 */}
+            <View style={styles.defenseCard}>
+              <Text style={styles.defenseLabel}>実質防衛資金</Text>
+              <Text style={[styles.defenseAmount, realDefense < 0 && { color: '#ef4444' }]}>
+                {fmt(realDefense)}
               </Text>
-            ) : (
-              <Text style={[styles.usdHint, { color: colors.text }]}>目標達成</Text>
-            )}
+              <Text style={styles.totalSub}>総資産 {fmt(totalAssets)}</Text>
+            </View>
+
+            {/* Asset chips */}
+            <View style={styles.chipsRow}>
+              <View style={styles.chip}>
+                <Text style={styles.chipLabel}>円</Text>
+                <Text style={styles.chipValue}>{fmtShort(financialAssets.jpyCash)}</Text>
+              </View>
+              <View style={styles.chip}>
+                <Text style={styles.chipLabel}>USD</Text>
+                <Text style={styles.chipValue}>${(financialAssets.usdAmount ?? 0).toFixed(0)}</Text>
+                <Text style={styles.chipSub}>{fmtShort(usdInJpy)}</Text>
+              </View>
+              {deviceTotal > 0 && (
+                <View style={styles.chip}>
+                  <Text style={styles.chipLabel}>資産</Text>
+                  <Text style={styles.chipValue}>{fmtShort(deviceTotal)}</Text>
+                </View>
+              )}
+              {rateLoaded && (
+                <View style={styles.chip}>
+                  <Text style={styles.chipLabel}>USD/JPY</Text>
+                  <Text style={styles.chipValue}>{(exchangeRate ?? 150).toFixed(1)}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* USD ratio bar */}
+            <View style={styles.usdSection}>
+              <View style={styles.usdLabelRow}>
+                <Text style={styles.usdLabel}>USD比率 {(usdRatio ?? 0).toFixed(1)}%</Text>
+                <Text style={styles.usdTarget}>目標 30%</Text>
+              </View>
+              <View style={styles.barTrack}>
+                <View style={[styles.barFill, { width: `${Math.min((usdRatio / 30) * 100, 100)}%` }]} />
+                <View style={styles.barMarker} />
+              </View>
+              {usdNeeded > 0 ? (
+                <Text style={styles.usdHint}>
+                  あと ${Math.round(usdNeeded / exchangeRate).toLocaleString()} で目標達成 · 次の給料日 {getNextPayday(paydayDate)}
+                </Text>
+              ) : (
+                <Text style={[styles.usdHint, { color: colors.text }]}>目標達成</Text>
+              )}
+            </View>
+
+            {/* 最近の取引 */}
+            <View style={styles.historySection}>
+              <Text style={styles.historyTitle}>最近の取引</Text>
+              {budgetTransactions.length > 0 ? (
+                budgetTransactions.map((tx) => (
+                  <View key={tx.id} style={styles.txRow}>
+                    <View style={[styles.txIcon, { backgroundColor: tx.type === 'income' ? '#22c55e20' : '#ef444420' }]}>
+                      <Ionicons 
+                        name={tx.type === 'income' ? 'trending-up' : 'card-outline'} 
+                        size={16} 
+                        color={tx.type === 'income' ? '#22c55e' : '#ef4444'} 
+                      />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={styles.txDesc}>{tx.description}</Text>
+                      <Text style={styles.txDate}>{tx.date}</Text>
+                    </View>
+                    <Text style={[styles.txAmount, { color: tx.type === 'income' ? '#22c55e' : colors.text }]}>
+                      {tx.type === 'income' ? '+' : '-'}{fmt(tx.amount)}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyText}>取引履歴はまだありません</Text>
+              )}
+            </View>
           </View>
-        </View>
-      )}
+        )}
+      </ScrollView>
 
       {/* Setup Prompt - 未設定かつ非表示にされていない場合 */}
       {!financialAssets.setupDone && showSetupPrompt && (
@@ -287,4 +316,14 @@ const styles = StyleSheet.create({
   setupPrimaryText: { color: colors.background, fontSize: 16, fontWeight: '700' },
   setupSecondaryBtn: { padding: 10 },
   setupSecondaryText: { color: colors.textSecondary, fontSize: 14, fontWeight: '500' },
+
+  // History
+  historySection: { marginTop: 32, paddingHorizontal: 4 },
+  historyTitle: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 16 },
+  txRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  txIcon: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
+  txDesc: { fontSize: 14, fontWeight: '600', color: colors.text },
+  txDate: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
+  txAmount: { fontSize: 15, fontWeight: '700' },
+  emptyText: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', marginTop: 12, fontStyle: 'italic' },
 });

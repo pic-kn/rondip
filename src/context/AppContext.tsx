@@ -17,7 +17,7 @@ export type {
 
 
 const DEFAULT_FINANCIAL_ASSETS: FinancialAssets = {
-  jpyCash: 0,
+  jpyCash: 150000,
   usdAmount: 0,
   deviceAssets: [],
   creditCardPending: 0,
@@ -56,6 +56,7 @@ interface AppContextProps {
 
   budgetBalance: number;
   addExpense: (amount: number, description: string) => void;
+  addIncome: (amount: number, title: string) => void;
 
   events: AppEvent[];
   addEvent: (event: AppEvent) => void;
@@ -142,6 +143,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<AppEvent[]>([]);
+  // budgetBalance is now derived/synced with financialAssets.jpyCash
   const [budgetBalance, setBudgetBalance] = useState<number>(150000);
   const [spareTime, setSpareTime] = useState<number>(0);
   const [routines, setRoutines] = useState<Routine[]>([]);
@@ -347,7 +349,37 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addExpense = (amount: number, description: string) => {
-    setBudgetBalance((prev) => prev - amount);
+    const today = new Date().toISOString().split('T')[0];
+    const newTx: BudgetTransaction = {
+      id: `tx-${Date.now()}`,
+      type: 'expense',
+      description,
+      amount,
+      date: today,
+    };
+    setBudgetTransactions(prev => [newTx, ...prev.slice(0, 49)]);
+    setFinancialAssets(prev => {
+      const newCash = prev.jpyCash - amount;
+      setBudgetBalance(newCash); // Sync legacy balance
+      return { ...prev, jpyCash: newCash };
+    });
+  };
+
+  const addIncome = (amount: number, title: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    const newTx: BudgetTransaction = {
+      id: `tx-${Date.now()}`,
+      type: 'income',
+      description: title,
+      amount,
+      date: today,
+    };
+    setBudgetTransactions(prev => [newTx, ...prev.slice(0, 49)]);
+    setFinancialAssets(prev => {
+      const newCash = prev.jpyCash + amount;
+      setBudgetBalance(newCash); // Sync legacy balance
+      return { ...prev, jpyCash: newCash };
+    });
   };
 
   const addEvent = (event: AppEvent) => {
@@ -415,8 +447,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setLastSyncDate(today);
   };
 
-  const updateFinancialAssets = (fa: Partial<FinancialAssets>) =>
-    setFinancialAssets(prev => ({ ...prev, ...fa }));
+  const updateFinancialAssets = (fa: Partial<FinancialAssets>) => {
+    setFinancialAssets(prev => {
+      const next = { ...prev, ...fa };
+      if (fa.jpyCash !== undefined) {
+        setBudgetBalance(fa.jpyCash);
+      }
+      return next;
+    });
+  };
 
   const budgetMessages = budgetSessions.find(s => s.id === currentBudgetSessionId)?.messages ?? [];
 
@@ -599,7 +638,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   return (
     <AppContext.Provider value={{
       tasks, addTask, updateTask, deleteTask, completeTask,
-      budgetBalance, addExpense,
+      budgetBalance, addExpense, addIncome,
       events, addEvent, updateEvent, deleteEvent,
       chatHistory, addChatMessage,
       chatSessions, currentSessionId, createNewSession, switchSession, deleteSession,

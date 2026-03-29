@@ -63,7 +63,7 @@ export default function BrainDumpScreen() {
 
   const { 
     tasks, budgetBalance, events, chatHistory, addChatMessage, addTask, updateTask, deleteTask, 
-    addExpense, addEvent, updateEvent, deleteEvent, syncRoutines, aiFeatureState, completeTask, 
+    addExpense, addIncome, addEvent, updateEvent, deleteEvent, syncRoutines, aiFeatureState, completeTask, 
     chatSessions, currentSessionId, createNewSession, switchSession, deleteSession, 
     getAvailableMinutes, financialAssets, updateFinancialAssets, userProfile, addUserInsight
   } = useAppContext();
@@ -203,8 +203,8 @@ export default function BrainDumpScreen() {
         addExpense(amount, description);
       } else if (result.type === 'income') {
         const amount = Number(result.data?.amount) || 0;
-        const description = result.data?.title || '収入';
-        updateFinancialAssets({ jpyCash: (financialAssets?.jpyCash || 0) + amount });
+        const description = result.data?.title || result.data?.description || '収入';
+        addIncome(amount, description);
       } else if (result.type === 'budget_update') {
         const d = result.data || {};
         const updates: any = {};

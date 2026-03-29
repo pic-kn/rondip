@@ -138,7 +138,7 @@ ${historyContext}
   "data": {
     // task/schedule/expense/income の場合:
     "title": "項目名",
-    "amount": 数値(JPY、income/expense時),
+    "amount": 数値(実金額単位。35万なら350000),
     "date": "YYYY-MM-DD",
     // budget_update の場合:
     "jpyCash": 数値(任意),
@@ -147,6 +147,11 @@ ${historyContext}
     "setupDone": boolean
   }
 }
+
+【具体例】
+- 「給料35万入った」-> type: "income", data: { title: "給料", amount: 350000 }
+- 「スタバで700円」 -> type: "expense", data: { description: "スタバ", amount: 700 }
+- 「貯金が100万ある」-> type: "budget_update", data: { jpyCash: 1000000, setupDone: true }
 
 移動時間ルール:
 1. 同一市内なら15-45分
