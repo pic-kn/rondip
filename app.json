@@ -13,7 +13,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.adhd.manager",
+      "bundleIdentifier": "com.rondip.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
