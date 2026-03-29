@@ -1,12 +1,13 @@
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { 
-  Task, AppEvent, ChatMessage, ChatSession, Routine, 
-  ShiftEntry, WorkplacePreset, WorkSchedule, SleepSettings, 
-  DeviceAsset, FutureExpense, FinancialAssets, BudgetMessage, 
-  BudgetSession, BudgetTransaction 
+import {
+  Task, AppEvent, ChatMessage, ChatSession, Routine,
+  ShiftEntry, WorkplacePreset, WorkSchedule, SleepSettings,
+  DeviceAsset, FutureExpense, FinancialAssets, BudgetMessage,
+  BudgetSession, BudgetTransaction
 } from '../types';
+import { toLocalDateStr, calcAvailableMinutes } from '../utils/timeCalc';
 
 export type { 
   Task, AppEvent, ChatMessage, ChatSession, Routine, 
@@ -40,12 +41,6 @@ const DEFAULT_SLEEP_SETTINGS: SleepSettings = {
   bedTime: '23:00',
 };
 
-const toLocalDateStr = (date: Date): string => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
 
 interface AppContextProps {
   tasks: Task[];
@@ -561,42 +556,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const getAvailableMinutes = (dateStr?: string): number => {
     const target = dateStr || toLocalDateStr(new Date());
-    const now = new Date();
-    const isToday = target === toLocalDateStr(now);
-    const [wH, wM] = sleepSettings.wakeTime.split(':').map(Number);
-    const [bH, bM] = sleepSettings.bedTime.split(':').map(Number);
-    const wakeTotal = wH * 60 + wM;
-    const bedTotal = bH * 60 + bM;
-    const startFrom = isToday ? Math.max(now.getHours() * 60 + now.getMinutes(), wakeTotal) : wakeTotal;
-    const totalMinutes = Math.max(0, bedTotal - startFrom);
-
-    // 予定をブロックに変換し、重複をマージして差し引く
-    // ルーティンは朝食・夕食のみカウント（昼食はシフト内のため除外、他は時間管理外）
-    const blocks = events
-      .filter(e => {
-        if (e.date !== target) return false;
-        if (!e.id.startsWith('routine-')) return true;
-        return e.id.startsWith('routine-breakfast') || e.id.startsWith('routine-dinner');
-      })
-      .map(e => {
-        const [h, m] = e.timeString.split(':').map(Number);
-        const start = h * 60 + m;
-        return { start, end: start + (e.estimatedMinutes || 60) };
-      })
-      .sort((a, b) => a.start - b.start);
-
-    // 重複するブロックをマージ
-    const merged: { start: number; end: number }[] = [];
-    for (const block of blocks) {
-      if (merged.length > 0 && block.start <= merged[merged.length - 1].end) {
-        merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, block.end);
-      } else {
-        merged.push({ ...block });
-      }
-    }
-
-    const occupied = merged.reduce((sum, b) => sum + (b.end - b.start), 0);
-    return Math.max(0, totalMinutes - occupied);
+    return calcAvailableMinutes(events, sleepSettings, target);
   };
 
   const clearData = async () => {
