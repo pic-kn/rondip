@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "adhd-manager",
-    "slug": "adhd-manager",
+    "name": "Rondip",
+    "slug": "rondip",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -13,7 +13,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.adhd.manager"
+      "bundleIdentifier": "com.rondip.app"
     },
     "android": {
       "adaptiveIcon": {
