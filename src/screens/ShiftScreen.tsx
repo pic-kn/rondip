@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { useAppContext } from '../context/AppContext';
+import NativeTimePicker from '../components/NativeTimePicker';
 
 const DAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -18,22 +19,6 @@ const formatDate = (dateStr: string): string => {
   return `${d.getMonth() + 1}/${d.getDate()}(${DAYS[d.getDay()]})`;
 };
 
-function TimePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [h, m] = value.split(':').map(Number);
-  const setH = (delta: number) => onChange(`${String((h + delta + 24) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-  const setM = (delta: number) => onChange(`${String(h).padStart(2, '0')}:${String((m + delta + 60) % 60).padStart(2, '0')}`);
-  return (
-    <View style={styles.timePicker}>
-      <TouchableOpacity onPress={() => setH(-1)} style={styles.arrowBtn}><Text style={styles.arrow}>◀</Text></TouchableOpacity>
-      <Text style={styles.timeText}>{String(h).padStart(2, '0')}</Text>
-      <TouchableOpacity onPress={() => setH(1)} style={styles.arrowBtn}><Text style={styles.arrow}>▶</Text></TouchableOpacity>
-      <Text style={styles.timeColon}>:</Text>
-      <TouchableOpacity onPress={() => setM(-15)} style={styles.arrowBtn}><Text style={styles.arrow}>◀</Text></TouchableOpacity>
-      <Text style={styles.timeText}>{String(m).padStart(2, '0')}</Text>
-      <TouchableOpacity onPress={() => setM(15)} style={styles.arrowBtn}><Text style={styles.arrow}>▶</Text></TouchableOpacity>
-    </View>
-  );
-}
 
 export default function ShiftScreen() {
   const {
@@ -103,11 +88,11 @@ export default function ShiftScreen() {
           </View>
           <View style={styles.timeRow}>
             <Text style={styles.timeLabel}>開始</Text>
-            <TimePicker value={workSchedule.fixedStartTime} onChange={v => updateWorkSchedule({ fixedStartTime: v })} />
+            <NativeTimePickervalue={workSchedule.fixedStartTime} onChange={v => updateWorkSchedule({ fixedStartTime: v })} />
           </View>
           <View style={styles.timeRow}>
             <Text style={styles.timeLabel}>終了</Text>
-            <TimePicker value={workSchedule.fixedEndTime} onChange={v => updateWorkSchedule({ fixedEndTime: v })} />
+            <NativeTimePickervalue={workSchedule.fixedEndTime} onChange={v => updateWorkSchedule({ fixedEndTime: v })} />
           </View>
         </View>
       )}
@@ -136,11 +121,11 @@ export default function ShiftScreen() {
                 />
                 <View style={styles.timeRow}>
                   <Text style={styles.timeLabel}>開始</Text>
-                  <TimePicker value={newStart} onChange={setNewStart} />
+                  <NativeTimePickervalue={newStart} onChange={setNewStart} />
                 </View>
                 <View style={styles.timeRow}>
                   <Text style={styles.timeLabel}>終了</Text>
-                  <TimePicker value={newEnd} onChange={setNewEnd} />
+                  <NativeTimePickervalue={newEnd} onChange={setNewEnd} />
                 </View>
                 <TouchableOpacity
                   style={[styles.saveBtn, !newName.trim() && { opacity: 0.4 }]}
@@ -239,11 +224,11 @@ export default function ShiftScreen() {
         <Text style={styles.sectionTitle}>睡眠設定</Text>
         <View style={styles.timeRow}>
           <Text style={styles.timeLabel}>起床時間</Text>
-          <TimePicker value={sleepSettings.wakeTime} onChange={v => updateSleepSettings({ wakeTime: v })} />
+          <NativeTimePickervalue={sleepSettings.wakeTime} onChange={v => updateSleepSettings({ wakeTime: v })} />
         </View>
         <View style={styles.timeRow}>
           <Text style={styles.timeLabel}>就寝時間</Text>
-          <TimePicker value={sleepSettings.bedTime} onChange={v => updateSleepSettings({ bedTime: v })} />
+          <NativeTimePickervalue={sleepSettings.bedTime} onChange={v => updateSleepSettings({ bedTime: v })} />
         </View>
       </View>
 
@@ -271,11 +256,6 @@ const styles = StyleSheet.create({
   dayBtnTextActive: { color: colors.background },
   timeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   timeLabel: { width: 64, fontSize: 14, color: colors.text, fontWeight: '500' },
-  timePicker: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  arrowBtn: { padding: 6 },
-  arrow: { fontSize: 11, color: colors.textSecondary },
-  timeText: { fontSize: 16, fontWeight: '600', color: colors.text, minWidth: 28, textAlign: 'center' },
-  timeColon: { fontSize: 16, fontWeight: '600', color: colors.text, marginHorizontal: 1 },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 4 },
   addBtnText: { fontSize: 13, fontWeight: '600', color: colors.text },
   addForm: { backgroundColor: colors.background, borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: colors.borderSubtle },
