@@ -9,6 +9,7 @@ import * as Location from 'expo-location';
 import { requestNotificationPermission } from '../services/notifications';
 import { colors } from '../theme/colors';
 import { useAppContext, WorkSchedule } from '../context/AppContext';
+import NativeTimePicker from '../components/NativeTimePicker';
 
 
 export interface DailyRoutineItem {
@@ -155,37 +156,9 @@ export default function OnboardingScreen({ onComplete }: Props) {
     onComplete();
   };
 
-  const adjustHour = (id: string, delta: number) => {
-    setRoutines(prev => prev.map(r =>
-      r.id === id ? { ...r, hour: (r.hour + delta + 24) % 24 } : r
-    ));
-  };
-
-  const adjustMinute = (id: string, delta: number) => {
-    setRoutines(prev => prev.map(r =>
-      r.id === id ? { ...r, minute: (r.minute + delta + 60) % 60 } : r
-    ));
-  };
-
-  const adjustTime = (getter: string, setter: (v: string) => void, type: 'h' | 'm', delta: number) => {
-    const [h, m] = getter.split(':').map(Number);
-    if (type === 'h') setter(`${String((h + delta + 24) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-    else setter(`${String(h).padStart(2, '0')}:${String((m + delta + 60) % 60).padStart(2, '0')}`);
-  };
-
-  const renderTimePicker = (value: string, onChange: (v: string) => void) => {
+  const setRoutineTime = (id: string, value: string) => {
     const [h, m] = value.split(':').map(Number);
-    return (
-      <View style={styles.timePicker}>
-        <TouchableOpacity onPress={() => adjustTime(value, onChange, 'h', -1)} style={styles.arrowBtn}><Text style={styles.arrow}>◀</Text></TouchableOpacity>
-        <Text style={styles.timeText}>{String(h).padStart(2, '0')}</Text>
-        <TouchableOpacity onPress={() => adjustTime(value, onChange, 'h', 1)} style={styles.arrowBtn}><Text style={styles.arrow}>▶</Text></TouchableOpacity>
-        <Text style={styles.timeColon}>:</Text>
-        <TouchableOpacity onPress={() => adjustTime(value, onChange, 'm', -15)} style={styles.arrowBtn}><Text style={styles.arrow}>◀</Text></TouchableOpacity>
-        <Text style={styles.timeText}>{String(m).padStart(2, '0')}</Text>
-        <TouchableOpacity onPress={() => adjustTime(value, onChange, 'm', 15)} style={styles.arrowBtn}><Text style={styles.arrow}>▶</Text></TouchableOpacity>
-      </View>
-    );
+    setRoutines(prev => prev.map(r => r.id === id ? { ...r, hour: h, minute: m } : r));
   };
 
   const toggleRoutine = (id: string) => {
@@ -304,23 +277,10 @@ export default function OnboardingScreen({ onComplete }: Props) {
                   />
                   <Text style={styles.routineLabel}>{r.label}</Text>
                   {r.enabled ? (
-                    <View style={styles.timePicker}>
-                      <TouchableOpacity onPress={() => adjustHour(r.id, -1)} style={styles.arrowBtn}>
-                        <Text style={styles.arrow}>◀</Text>
-                      </TouchableOpacity>
-                      <Text style={styles.timeText}>{String(r.hour).padStart(2, '0')}</Text>
-                      <TouchableOpacity onPress={() => adjustHour(r.id, 1)} style={styles.arrowBtn}>
-                        <Text style={styles.arrow}>▶</Text>
-                      </TouchableOpacity>
-                      <Text style={styles.timeColon}>:</Text>
-                      <TouchableOpacity onPress={() => adjustMinute(r.id, -15)} style={styles.arrowBtn}>
-                        <Text style={styles.arrow}>◀</Text>
-                      </TouchableOpacity>
-                      <Text style={styles.timeText}>{String(r.minute).padStart(2, '0')}</Text>
-                      <TouchableOpacity onPress={() => adjustMinute(r.id, 15)} style={styles.arrowBtn}>
-                        <Text style={styles.arrow}>▶</Text>
-                      </TouchableOpacity>
-                    </View>
+                    <NativeTimePicker
+                      value={`${String(r.hour).padStart(2, '0')}:${String(r.minute).padStart(2, '0')}`}
+                      onChange={v => setRoutineTime(r.id, v)}
+                    />
                   ) : (
                     <Text style={styles.disabledText}>スキップ</Text>
                   )}
@@ -365,11 +325,11 @@ export default function OnboardingScreen({ onComplete }: Props) {
                 </View>
                 <View style={styles.workTimeRow}>
                   <Text style={styles.workTimeLabel}>開始</Text>
-                  {renderTimePicker(fixedStart, setFixedStart)}
+                  <NativeTimePicker value={fixedStart} onChange={setFixedStart} />
                 </View>
                 <View style={styles.workTimeRow}>
                   <Text style={styles.workTimeLabel}>終了</Text>
-                  {renderTimePicker(fixedEnd, setFixedEnd)}
+                  <NativeTimePicker value={fixedEnd} onChange={setFixedEnd} />
                 </View>
               </View>
             )}
@@ -386,11 +346,11 @@ export default function OnboardingScreen({ onComplete }: Props) {
                 />
                 <View style={styles.workTimeRow}>
                   <Text style={styles.workTimeLabel}>開始</Text>
-                  {renderTimePicker(workplaceStart, setWorkplaceStart)}
+                  <NativeTimePicker value={workplaceStart} onChange={setWorkplaceStart} />
                 </View>
                 <View style={styles.workTimeRow}>
                   <Text style={styles.workTimeLabel}>終了</Text>
-                  {renderTimePicker(workplaceEnd, setWorkplaceEnd)}
+                  <NativeTimePicker value={workplaceEnd} onChange={setWorkplaceEnd} />
                 </View>
               </View>
             )}
@@ -399,11 +359,11 @@ export default function OnboardingScreen({ onComplete }: Props) {
               <Text style={styles.routineSubtitle}>起床・就寝時間</Text>
               <View style={styles.workTimeRow}>
                 <Text style={styles.workTimeLabel}>起床</Text>
-                {renderTimePicker(wakeTime, setWakeTime)}
+                <NativeTimePicker value={wakeTime} onChange={setWakeTime} />
               </View>
               <View style={styles.workTimeRow}>
                 <Text style={styles.workTimeLabel}>就寝</Text>
-                {renderTimePicker(bedTime, setBedTime)}
+                <NativeTimePicker value={bedTime} onChange={setBedTime} />
               </View>
             </View>
             <Text style={styles.hintText}>あとから変更できます</Text>
@@ -648,31 +608,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.text,
     fontWeight: '500',
-  },
-  timePicker: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  arrowBtn: {
-    padding: 4,
-  },
-  arrow: {
-    fontSize: 11,
-    color: colors.textSecondary,
-  },
-  timeText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    minWidth: 24,
-    textAlign: 'center',
-  },
-  timeColon: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginHorizontal: 1,
   },
   disabledText: {
     fontSize: 13,

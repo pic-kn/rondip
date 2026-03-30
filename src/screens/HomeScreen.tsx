@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View, Text, TouchableOpacity, Switch, Alert } from 'react-native';
+import { ScrollView, StyleSheet, View, Text, TouchableOpacity, Switch, Alert, Modal } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import { colors } from '../theme/colors';
 import { useAppContext } from '../context/AppContext';
 import ListSection from '../components/ListSection';
 import ListItem from '../components/ListItem';
 import { Ionicons } from '@expo/vector-icons';
+import NativeTimePicker from '../components/NativeTimePicker';
 
 const DAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -16,53 +18,7 @@ export default function HomeScreen() {
     clearData,
   } = useAppContext();
 
-  const [wakeTime, setWakeTime] = useState(sleepSettings.wakeTime);
-  const [bedTime, setBedTime] = useState(sleepSettings.bedTime);
-
-  const adjustTime = (
-    getter: string,
-    setter: (v: string) => void,
-    saveFn: (v: string) => void,
-    type: 'h' | 'm',
-    delta: number,
-  ) => {
-    const [h, m] = getter.split(':').map(Number);
-    let newVal: string;
-    if (type === 'h') {
-      newVal = `${String((h + delta + 24) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    } else {
-      newVal = `${String(h).padStart(2, '0')}:${String((m + delta + 60) % 60).padStart(2, '0')}`;
-    }
-    setter(newVal);
-    saveFn(newVal);
-  };
-
-  const renderTimePicker = (
-    value: string,
-    setter: (v: string) => void,
-    saveFn: (v: string) => void,
-  ) => {
-    const [h, m] = value.split(':').map(Number);
-    return (
-      <View style={styles.timePicker}>
-        <TouchableOpacity onPress={() => adjustTime(value, setter, saveFn, 'h', -1)} style={styles.arrowBtn}>
-          <Text style={styles.arrow}>◀</Text>
-        </TouchableOpacity>
-        <Text style={styles.timeText}>{String(h).padStart(2, '0')}</Text>
-        <TouchableOpacity onPress={() => adjustTime(value, setter, saveFn, 'h', 1)} style={styles.arrowBtn}>
-          <Text style={styles.arrow}>▶</Text>
-        </TouchableOpacity>
-        <Text style={styles.timeColon}>:</Text>
-        <TouchableOpacity onPress={() => adjustTime(value, setter, saveFn, 'm', -15)} style={styles.arrowBtn}>
-          <Text style={styles.arrow}>◀</Text>
-        </TouchableOpacity>
-        <Text style={styles.timeText}>{String(m).padStart(2, '0')}</Text>
-        <TouchableOpacity onPress={() => adjustTime(value, setter, saveFn, 'm', 15)} style={styles.arrowBtn}>
-          <Text style={styles.arrow}>▶</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
+  const [showPaydayPicker, setShowPaydayPicker] = useState(false);
 
   const handleReset = () => {
     Alert.alert(
@@ -76,6 +32,28 @@ export default function HomeScreen() {
   };
 
   return (
+    <>
+    <Modal visible={showPaydayPicker} transparent animationType="slide">
+      <View style={styles.overlay}>
+        <View style={styles.pickerSheet}>
+          <View style={styles.pickerHeader}>
+            <View />
+            <TouchableOpacity onPress={() => setShowPaydayPicker(false)}>
+              <Text style={styles.pickerDone}>完了</Text>
+            </TouchableOpacity>
+          </View>
+          <Picker
+            selectedValue={paydayDate}
+            onValueChange={v => updatePaydayDate(v)}
+            style={{ width: '100%' }}
+          >
+            {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+              <Picker.Item key={d} label={`${d}日`} value={d} />
+            ))}
+          </Picker>
+        </View>
+      </View>
+    </Modal>
     <ScrollView style={styles.container}>
 
       {/* 睡眠設定 */}
@@ -86,7 +64,7 @@ export default function HomeScreen() {
           iconColor={colors.textSecondary}
           title="起床時間"
           showChevron={false}
-          rightComponent={renderTimePicker(wakeTime, setWakeTime, v => updateSleepSettings({ wakeTime: v }))}
+          rightComponent={<NativeTimePicker value={sleepSettings.wakeTime} onChange={v => updateSleepSettings({ wakeTime: v })} />}
         />
         <ListItem
           icon="moon-outline"
@@ -94,7 +72,7 @@ export default function HomeScreen() {
           title="就寝時間"
           isLast
           showChevron={false}
-          rightComponent={renderTimePicker(bedTime, setBedTime, v => updateSleepSettings({ bedTime: v }))}
+          rightComponent={<NativeTimePicker value={sleepSettings.bedTime} onChange={v => updateSleepSettings({ bedTime: v })} />}
         />
       </ListSection>
 
@@ -142,11 +120,7 @@ export default function HomeScreen() {
               title="開始"
               isLast={false}
               showChevron={false}
-              rightComponent={renderTimePicker(
-                workSchedule.fixedStartTime,
-                v => updateWorkSchedule({ fixedStartTime: v }),
-                v => updateWorkSchedule({ fixedStartTime: v }),
-              )}
+              rightComponent={<NativeTimePicker value={workSchedule.fixedStartTime} onChange={v => updateWorkSchedule({ fixedStartTime: v })} />}
             />
             <ListItem
               icon="time-outline"
@@ -154,11 +128,7 @@ export default function HomeScreen() {
               title="終了"
               isLast
               showChevron={false}
-              rightComponent={renderTimePicker(
-                workSchedule.fixedEndTime,
-                v => updateWorkSchedule({ fixedEndTime: v }),
-                v => updateWorkSchedule({ fixedEndTime: v }),
-              )}
+              rightComponent={<NativeTimePicker value={workSchedule.fixedEndTime} onChange={v => updateWorkSchedule({ fixedEndTime: v })} />}
             />
           </>
         )}
@@ -174,16 +144,9 @@ export default function HomeScreen() {
           isLast
           showChevron={false}
           rightComponent={
-            <View style={styles.timePicker}>
-              <TouchableOpacity onPress={() => updatePaydayDate(((paydayDate - 2 + 31) % 31) + 1)} style={styles.arrowBtn}>
-                <Text style={styles.arrow}>◀</Text>
-              </TouchableOpacity>
-              <Text style={styles.timeText}>{String(paydayDate).padStart(2, '0')}</Text>
-              <Text style={[styles.timeColon, { fontSize: 13 }]}>日</Text>
-              <TouchableOpacity onPress={() => updatePaydayDate((paydayDate % 31) + 1)} style={styles.arrowBtn}>
-                <Text style={styles.arrow}>▶</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.paydayButton} onPress={() => setShowPaydayPicker(true)}>
+              <Text style={styles.paydayText}>{paydayDate}日</Text>
+            </TouchableOpacity>
           }
         />
       </ListSection>
@@ -202,6 +165,7 @@ export default function HomeScreen() {
       </ListSection>
 
     </ScrollView>
+    </>
   );
 }
 
@@ -217,11 +181,12 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  timePicker: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  arrowBtn: { padding: 4 },
-  arrow: { fontSize: 11, color: colors.textSecondary },
-  timeText: { fontSize: 16, fontWeight: '600', color: colors.text, minWidth: 24, textAlign: 'center' },
-  timeColon: { fontSize: 16, fontWeight: '600', color: colors.text, marginHorizontal: 1 },
+  paydayButton: { backgroundColor: colors.borderSubtle, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7 },
+  paydayText: { fontSize: 16, fontWeight: '600', color: colors.text },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'flex-end' },
+  pickerSheet: { backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 },
+  pickerHeader: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4 },
+  pickerDone: { fontSize: 16, fontWeight: '600', color: colors.text },
   daysRow: {
     flexDirection: 'row', gap: 6,
     paddingHorizontal: 16, paddingVertical: 12,
