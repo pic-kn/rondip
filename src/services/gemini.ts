@@ -122,6 +122,13 @@ ${historyContext}
 - "budget_update": 資産の初期設定や現在の残高報告（現金が5万ある、USDを$100持っている、など）。
 - "general": 上記以外の雑談・質問。
 
+【時間解釈ルール】
+1. 「今から20分後」「30分後」「2時間後」などの相対時刻は、必ず現在時刻を基準に絶対時刻へ変換すること。
+2. 時刻が推定できた場合、schedule では必ず "timeString" に "HH:MM" を入れること。
+3. task で時間指定がある場合は "scheduledTime" に "HH:MM" を入れること。
+4. 「明日」「今日の夜」「今夜」なども、可能な限り "date" と "timeString" に具体化すること。
+5. 外出予定なのに時間が推定できる場合は、"timeString" を null にしないこと。
+
 【金額パースの鉄則 (重要)】
 1. 「35」「35万」などの収入/支出は、日本円(JPY)として解釈。
 2. 月収・給与の文脈で「35」「40」などの2〜3桁の数値が来たら、それは「万」単位（350,000 / 400,000）として扱うこと。
@@ -140,6 +147,7 @@ ${historyContext}
     "title": "項目名",
     "amount": 数値(実金額単位。35万なら350000),
     "date": "YYYY-MM-DD",
+    "timeString": "HH:MM または null（scheduleで時間がある場合は必須）",
     "scheduledTime": "HH:MM または null（taskで時間指定がある場合のみ）",
     // budget_update の場合:
     "jpyCash": 数値(任意),
@@ -153,6 +161,8 @@ ${historyContext}
 - 「給料35万入った」-> type: "income", data: { title: "給料", amount: 350000 }
 - 「スタバで700円」 -> type: "expense", data: { description: "スタバ", amount: 700 }
 - 「貯金が100万ある」-> type: "budget_update", data: { jpyCash: 1000000, setupDone: true }
+- 「今から20分後にコンビニ行く」-> type: "schedule", data: { title: "コンビニ", date: "${today}", timeString: "現在時刻+20分のHH:MM" }
+- 「30分後に洗濯する」-> type: "task", data: { title: "洗濯", scheduledTime: "現在時刻+30分のHH:MM" }
 
 移動時間ルール:
 1. 同一市内なら15-45分

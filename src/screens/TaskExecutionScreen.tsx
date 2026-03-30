@@ -57,7 +57,9 @@ export default function TaskExecutionScreen() {
   const handleBreakdown = async (task: Task) => {
     if (loadingTaskId || subtasksByTask[task.id]) return;
     setLoadingTaskId(task.id);
-    const steps = await breakdownTask(task.title, task.originalText);
+    const steps = task.subtasks && task.subtasks.length > 0
+      ? task.subtasks
+      : await breakdownTask(task.title, task.originalText);
     const subtasks: Subtask[] = steps.map((title, i) => ({ id: `${task.id}-${i}`, title }));
     setSubtasksByTask(prev => ({ ...prev, [task.id]: subtasks }));
     setCheckedByTask(prev => ({ ...prev, [task.id]: new Set() }));
@@ -129,7 +131,7 @@ export default function TaskExecutionScreen() {
                     {isLoading
                       ? <ActivityIndicator size="small" color={colors.textSecondary} />
                       : <Ionicons
-                          name="flash-outline"
+                          name={task.subtasks?.length ? 'list-outline' : 'flash-outline'}
                           size={18}
                           color={hasSubtasks ? colors.border : colors.textSecondary}
                         />

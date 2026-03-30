@@ -212,7 +212,7 @@ export default function CalendarScreen() {
             const startMin = timeToMinutes(event.timeString);
             const duration = event.estimatedMinutes || 60;
             const top = minutesToY(startMin);
-            const blockHeight = Math.max((duration / 60) * HOUR_HEIGHT, 28);
+            const blockHeight = Math.max((duration / 60) * HOUR_HEIGHT, 36);
 
             if (startMin < TIMELINE_START * 60 || startMin >= TIMELINE_END * 60) return null;
 
@@ -223,14 +223,14 @@ export default function CalendarScreen() {
                 activeOpacity={0.8}
                 onPress={() => event.location && Linking.openURL(getGoogleMapsUrl(null, event.location))}
               >
-                <Text style={styles.eventBlockTitle} numberOfLines={1}>{event.title}</Text>
-                {blockHeight > 40 && event.location && (
+                <Text style={styles.eventBlockTitle} numberOfLines={blockHeight < 52 ? 1 : 2}>{event.title}</Text>
+                {blockHeight >= 54 && event.location && (
                   <View style={styles.eventBlockLocation}>
                     <Ionicons name="location-outline" size={11} color={colors.textSecondary} />
                     <Text style={styles.eventBlockLocationText} numberOfLines={1}>{event.location}</Text>
                   </View>
                 )}
-                {blockHeight > 52 && (
+                {blockHeight >= 68 && (
                   <Text style={styles.eventBlockTime}>
                     {event.timeString} · {duration}分
                   </Text>
@@ -400,31 +400,31 @@ const styles = StyleSheet.create({
 
   // モード切替
   modeSwitcherContainer: {
-    paddingHorizontal: 16, paddingVertical: 10,
+    paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSubtle,
   },
   modeSwitcher: {
-    flexDirection: 'row', backgroundColor: colors.borderSubtle,
-    borderRadius: 10, padding: 3, alignSelf: 'flex-start',
+    flexDirection: 'row', backgroundColor: '#F0EFEA',
+    borderRadius: 12, padding: 4, alignSelf: 'flex-start',
   },
-  modeBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8 },
+  modeBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 9 },
   modeBtnActive: { backgroundColor: colors.surface },
-  modeBtnText: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
+  modeBtnText: { fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
   modeBtnTextActive: { color: colors.text },
 
   // 週ストリップ
   weekStrip: {
-    flexDirection: 'row', paddingVertical: 10, paddingHorizontal: 8,
+    flexDirection: 'row', paddingVertical: 12, paddingHorizontal: 8,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSubtle,
   },
   weekDayBtn: { flex: 1, alignItems: 'center', gap: 4 },
   weekDayBtnActive: {},
-  weekDayName: { fontSize: 11, color: colors.textSecondary, fontWeight: '500' },
+  weekDayName: { fontSize: 10, color: colors.textSecondary, fontWeight: '600' },
   weekDayNameActive: { color: colors.text },
-  weekDayNum: { width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
+  weekDayNum: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
   weekDayNumActive: { backgroundColor: colors.text },
-  weekDayNumToday: { borderWidth: 1.5, borderColor: colors.text },
-  weekDayNumText: { fontSize: 14, color: colors.textSecondary, fontWeight: '500' },
+  weekDayNumToday: { borderWidth: 1, borderColor: colors.text },
+  weekDayNumText: { fontSize: 14, color: colors.textSecondary, fontWeight: '600' },
   weekDayNumTextActive: { color: colors.background, fontWeight: '700' },
   weekDayNumTextToday: { color: colors.text, fontWeight: '700' },
   eventDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.border },
@@ -432,18 +432,18 @@ const styles = StyleSheet.create({
 
   // タイムライン
   timelineScroll: { flex: 1 },
-  timelineContent: { position: 'relative', paddingLeft: TIME_COL_WIDTH, paddingRight: 16, paddingBottom: 32 },
+  timelineContent: { position: 'relative', paddingLeft: TIME_COL_WIDTH, paddingRight: 16, paddingBottom: 40 },
   hourRow: {
     position: 'absolute', left: 0, right: 16,
     flexDirection: 'row', alignItems: 'flex-start',
   },
   hourLabel: {
-    width: TIME_COL_WIDTH, fontSize: 11, color: colors.border,
+    width: TIME_COL_WIDTH, fontSize: 10, color: colors.mid,
     textAlign: 'right', paddingRight: 8, lineHeight: 14,
   },
   hourLine: {
     flex: 1, height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.borderSubtle, marginTop: 6,
+    backgroundColor: '#ECEBE6', marginTop: 6,
   },
 
   // 現在時刻
@@ -463,70 +463,69 @@ const styles = StyleSheet.create({
     left: TIME_COL_WIDTH + 12,
     right: 16,
     backgroundColor: colors.surface,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
-    padding: 8,
+    borderColor: colors.borderSubtle,
+    padding: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.05,
+    shadowRadius: 18,
+    elevation: 2,
   },
-  eventBlockTitle: { fontSize: 13, fontWeight: '700', color: colors.text, marginBottom: 2 },
+  eventBlockTitle: { fontSize: 12, lineHeight: 15, fontWeight: '700', color: colors.text, marginBottom: 1 },
   eventBlockLocation: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   eventBlockLocationText: { fontSize: 11, color: colors.textSecondary, flex: 1, fontWeight: '500' },
-  eventBlockTime: { fontSize: 11, color: colors.border, marginTop: 4, fontWeight: '600' },
+  eventBlockTime: { fontSize: 11, color: colors.textSecondary, marginTop: 4, fontWeight: '600' },
 
   noEventHint: { position: 'absolute', top: HOUR_HEIGHT * 2, left: TIME_COL_WIDTH + 16 },
-  noEventText: { fontSize: 14, color: colors.border },
+  noEventText: { fontSize: 14, color: colors.textSecondary },
 
   freeBlock: {
     position: 'absolute',
     left: TIME_COL_WIDTH + 14,
     right: 18,
-    backgroundColor: 'rgba(0,0,0,0.015)',
+    backgroundColor: '#F7F6F1',
     borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: 'rgba(0,0,0,0.04)',
-    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: '#E7E5DE',
     justifyContent: 'center',
     paddingHorizontal: 10,
   },
   freeBlockText: {
     fontSize: 11,
-    color: colors.border,
+    color: colors.mid,
     fontWeight: '600',
   },
 
   // リスト（週・月共通）
   listContent: { padding: 20, gap: 16 },
-  listDateLabel: { fontSize: 14, fontWeight: '600', color: colors.textSecondary, marginBottom: 4 },
+  listDateLabel: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 4 },
   eventCard: { flexDirection: 'row', gap: 12 },
   eventCardTime: { width: 44, alignItems: 'flex-end' },
   eventCardTimeText: { fontSize: 12, fontWeight: '700', color: colors.text },
   eventCardLine: { width: 1, flex: 1, backgroundColor: colors.borderSubtle, marginTop: 4, alignSelf: 'center' },
   eventCardInfo: {
     flex: 1, backgroundColor: colors.surface, padding: 16,
-    borderRadius: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
-    borderWidth: 1, borderColor: 'rgba(0,0,0,0.02)'
+    borderRadius: 18,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.05, shadowRadius: 18, elevation: 2,
+    borderWidth: 1, borderColor: colors.borderSubtle
   },
   eventCardTitle: { fontSize: 15, fontWeight: '700', color: colors.text },
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
   locationText: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
-  durationText: { fontSize: 12, color: colors.border, marginTop: 6, fontWeight: '600' },
+  durationText: { fontSize: 12, color: colors.textSecondary, marginTop: 6, fontWeight: '600' },
 
   // シフト
   shiftBlock: {
     position: 'absolute',
     left: TIME_COL_WIDTH + 12,
     right: 16,
-    backgroundColor: 'rgba(0,0,0,0.02)',
-    borderRadius: 10,
+    backgroundColor: '#F3F2EC',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.04)',
+    borderColor: '#E6E4DC',
     justifyContent: 'flex-start',
     paddingHorizontal: 10,
     paddingTop: 8,
@@ -535,21 +534,21 @@ const styles = StyleSheet.create({
   shiftBlockText: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
   shiftCard: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.borderSubtle,
-    borderRadius: 10, padding: 10, marginBottom: 8,
+    backgroundColor: '#F3F2EC',
+    borderRadius: 12, padding: 12, marginBottom: 8,
   },
   shiftCardText: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
 
   // 月カレンダー
   monthNav: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingVertical: 12,
+    paddingHorizontal: 20, paddingVertical: 14,
   },
-  monthLabel: { fontSize: 16, fontWeight: '600', color: colors.text },
+  monthLabel: { fontSize: 16, fontWeight: '700', color: colors.text },
   monthGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 8 },
   monthWeekday: {
     width: (SCREEN_WIDTH - 16) / 7, textAlign: 'center',
-    fontSize: 11, color: colors.textSecondary, fontWeight: '500',
+    fontSize: 11, color: colors.textSecondary, fontWeight: '600',
     paddingVertical: 4,
   },
   monthCell: {
@@ -558,8 +557,8 @@ const styles = StyleSheet.create({
   },
   monthDayInner: { width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
   monthDaySelected: { backgroundColor: colors.text },
-  monthDayToday: { borderWidth: 1.5, borderColor: colors.text },
-  monthDayText: { fontSize: 14, color: colors.textSecondary },
+  monthDayToday: { borderWidth: 1, borderColor: colors.text },
+  monthDayText: { fontSize: 14, color: colors.textSecondary, fontWeight: '500' },
   monthDayTextSelected: { color: colors.background, fontWeight: '700' },
   monthDayTextToday: { color: colors.text, fontWeight: '700' },
 });

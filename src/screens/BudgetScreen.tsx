@@ -47,16 +47,17 @@ export default function BudgetScreen() {
         headerRight: () => (
           <TouchableOpacity
             style={{ 
-              backgroundColor: colors.text, paddingHorizontal: 12, paddingVertical: 6, 
-              borderRadius: 14, marginRight: 8, flexDirection: 'row', alignItems: 'center', gap: 4
+              backgroundColor: colors.surface, paddingHorizontal: 12, paddingVertical: 7,
+              borderRadius: 16, marginRight: 8, flexDirection: 'row', alignItems: 'center', gap: 4,
+              borderWidth: 1, borderColor: colors.borderSubtle
             }}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               navigation.navigate('AIに話す', { initialMessage: '家計簿の設定をしたいです' });
             }}
           >
-            <Ionicons name="sparkles" size={14} color={colors.background} />
-            <Text style={{ color: colors.background, fontSize: 12, fontWeight: '700' }}>設定</Text>
+            <Ionicons name="sparkles" size={14} color={colors.text} />
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>設定</Text>
           </TouchableOpacity>
         ),
       });
@@ -87,9 +88,8 @@ export default function BudgetScreen() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
-        {/* Dashboard - 設定完了時のみ表示 */}
-        {financialAssets.setupDone && (
+      {financialAssets.setupDone ? (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
           <View style={styles.dashboard}>
             {/* 実質防衛資金 */}
             <View style={styles.defenseCard}>
@@ -171,11 +171,8 @@ export default function BudgetScreen() {
               )}
             </View>
           </View>
-        )}
-      </ScrollView>
-
-      {/* Setup Prompt - 未設定かつ非表示にされていない場合 */}
-      {!financialAssets.setupDone && showSetupPrompt && (
+        </ScrollView>
+      ) : showSetupPrompt ? (
         <View style={styles.setupContainer}>
           <View style={styles.setupCard}>
             <View style={styles.setupIconBg}>
@@ -203,7 +200,7 @@ export default function BudgetScreen() {
             </TouchableOpacity>
           </View>
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -263,59 +260,66 @@ const styles = StyleSheet.create({
   usdHint: { fontSize: 11, color: colors.textSecondary, fontWeight: '500' },
 
   // Setup UI
-  setupContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
+  setupContainer: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 72,
+  },
   setupCard: {
     backgroundColor: colors.surface,
-    padding: 32,
-    borderRadius: 32,
+    padding: 28,
+    borderRadius: 28,
     width: '100%',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.08,
-    shadowRadius: 40,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.06,
+    shadowRadius: 28,
+    elevation: 4,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.6)',
+    borderColor: colors.borderSubtle,
   },
   setupIconBg: {
-    width: 72, height: 72, borderRadius: 36,
+    width: 64, height: 64, borderRadius: 32,
     backgroundColor: colors.borderSubtle,
     justifyContent: 'center', alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   setupTitle: { 
     ...typography.h3, 
-    fontSize: 20, 
-    fontWeight: '800', 
+    fontSize: 18,
+    fontWeight: '700',
     color: colors.text, 
     textAlign: 'center', 
-    marginBottom: 14 
+    marginBottom: 10,
+    letterSpacing: -0.2,
   },
   setupDesc: { 
     ...typography.body, 
     fontSize: 14, 
     color: colors.textSecondary, 
     textAlign: 'center', 
-    lineHeight: 22,
-    marginBottom: 32,
-    paddingHorizontal: 8,
+    lineHeight: 23,
+    marginBottom: 24,
+    paddingHorizontal: 10,
   },
   setupPrimaryBtn: {
     flexDirection: 'row',
     backgroundColor: colors.text,
-    paddingHorizontal: 28,
-    paddingVertical: 16,
-    borderRadius: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 15,
+    borderRadius: 18,
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 16,
+    gap: 8,
+    marginBottom: 10,
     width: '100%',
     justifyContent: 'center',
   },
-  setupPrimaryText: { color: colors.background, fontSize: 16, fontWeight: '700' },
+  setupPrimaryText: { color: colors.background, fontSize: 15, fontWeight: '700' },
   setupSecondaryBtn: { padding: 10 },
-  setupSecondaryText: { color: colors.textSecondary, fontSize: 14, fontWeight: '500' },
+  setupSecondaryText: { color: colors.textSecondary, fontSize: 13, fontWeight: '500' },
 
   // History
   historySection: { marginTop: 32, paddingHorizontal: 4 },

@@ -1,22 +1,20 @@
 export const colors = {
-  // 画像に合わせたソフト・モノクロームパレット
-  background: '#FAFAFA',     // 純白に近いホワイト（スクリーン背景）
-  surface: '#FFFFFF',        // カード・入力フィールド
-  text: '#6B6B6B',           // チャコールグレー（黒塗り円・ドックと同系）
-  textSecondary: '#5C5C5C',  // ミディアムグレー（アイコン・サブテキスト）
-  border: '#D4D4D4',         // ニュートラルグレー（セパレーター）
-  borderSubtle: '#EBEBEB',   // 薄いグレー（背景の縁）
-  primary: '#6B6B6B',        // アクションカラーもチャコールで統一
-  accent: '#6B6B6B',
-  mid: '#9E9E9E',
-  danger: '#5C5C5C',         // モノクロ統一（赤を使わない）
-  success: '#6B6B6B',        // モノクロ統一（緑を使わない）
-  warning: '#5C5C5C',        // モノクロ統一（黄を使わない）
-  ink: '#1C1C1C',            // 最も濃い（数字など強調用）
-  inkDim: '#5C5C5C',
+  background: '#F5F5F3',
+  surface: '#FFFFFF',
+  text: '#1F1F1C',
+  textSecondary: '#6E6E67',
+  border: '#D9D8D1',
+  borderSubtle: '#ECEBE5',
+  primary: '#222220',
+  accent: '#222220',
+  mid: '#9C9B93',
+  danger: '#7A7A73',
+  success: '#4E5A4E',
+  warning: '#7A6B52',
+  ink: '#11110F',
+  inkDim: '#50504A',
   
-  // プレミアムなUI演出用のシャドウカラー
-  shadowLight: 'rgba(0, 0, 0, 0.04)',
-  shadowMedium: 'rgba(0, 0, 0, 0.08)',
-  shadowHeavy: 'rgba(0, 0, 0, 0.12)',
+  shadowLight: 'rgba(17, 17, 15, 0.04)',
+  shadowMedium: 'rgba(17, 17, 15, 0.08)',
+  shadowHeavy: 'rgba(17, 17, 15, 0.14)',
 };

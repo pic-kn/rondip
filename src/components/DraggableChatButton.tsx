@@ -14,7 +14,7 @@ import { navigationRef } from '../services/navigation';
 import { useAppContext } from '../context/AppContext';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const BUTTON_SIZE = 52; // 少し小さく調整
+const BUTTON_SIZE = 48;
 const MARGIN = 16;
 // 初期位置（右下に配置）
 const INITIAL_X = SCREEN_WIDTH - BUTTON_SIZE - MARGIN;
@@ -84,7 +84,7 @@ export default function DraggableChatButton() {
   return (
     <GestureDetector gesture={Gesture.Exclusive(panGesture, tapGesture)}>
       <Animated.View style={[styles.staticButton, animatedStyle]}>
-        <Ionicons name="add" size={24} color={colors.background} />
+        <Ionicons name="add" size={20} color={colors.surface} />
       </Animated.View>
     </GestureDetector>
   );
@@ -99,17 +99,19 @@ const styles = StyleSheet.create({
     height: BUTTON_SIZE,
     borderRadius: BUTTON_SIZE / 2,
     backgroundColor: colors.text,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.7)',
     justifyContent: 'center',
     alignItems: 'center',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.14,
+        shadowRadius: 18,
       },
       android: {
-        elevation: 8,
+        elevation: 6,
       },
     }),
   },

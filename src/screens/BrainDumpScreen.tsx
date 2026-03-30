@@ -33,6 +33,121 @@ const toLocalDateString = (date: Date): string => {
   return `${y}-${m}-${d}`;
 };
 
+const formatMoney = (amount: number) => `¥${Math.round(amount || 0).toLocaleString()}`;
+
+const timeToMinutes = (timeString: string): number => {
+  const [hour, minute] = timeString.split(':').map(Number);
+  return hour * 60 + minute;
+};
+
+const minutesToTime = (minutes: number): string => {
+  const safeMinutes = ((minutes % (24 * 60)) + (24 * 60)) % (24 * 60);
+  const hour = Math.floor(safeMinutes / 60);
+  const minute = safeMinutes % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+};
+
+const buildScheduleConflictSuggestion = (
+  target: { date: string; timeString: string; estimatedMinutes: number; title: string },
+  existingEvents: AppEvent[],
+  ignoreEventId?: string
+) => {
+  if (!target.timeString || target.timeString === '00:00') return null;
+
+  const targetStart = timeToMinutes(target.timeString);
+  const targetEnd = targetStart + (target.estimatedMinutes || 60);
+  const dayEvents = existingEvents
+    .filter(event => event.date === target.date && event.id !== ignoreEventId && event.timeString !== '00:00')
+    .map(event => ({
+      ...event,
+      start: timeToMinutes(event.timeString),
+      end: timeToMinutes(event.timeString) + (event.estimatedMinutes || 60),
+    }))
+    .sort((a, b) => a.start - b.start);
+
+  const overlappingEvents = dayEvents.filter(event => targetStart < event.end && targetEnd > event.start);
+  if (overlappingEvents.length === 0) return null;
+
+  const suggestedStarts = new Set<number>();
+  const candidateStarts = [
+    targetStart,
+    ...overlappingEvents.flatMap(event => [
+      Math.max(6 * 60, event.start - target.estimatedMinutes),
+      event.end,
+    ]),
+  ];
+
+  candidateStarts.forEach(candidateStart => {
+    const candidateEnd = candidateStart + target.estimatedMinutes;
+    const hasConflict = dayEvents.some(event => candidateStart < event.end && candidateEnd > event.start);
+    if (!hasConflict) {
+      suggestedStarts.add(candidateStart);
+    }
+  });
+
+  if (suggestedStarts.size === 0) {
+    let fallbackStart = targetStart;
+    for (const event of dayEvents) {
+      if (fallbackStart < event.end && fallbackStart + target.estimatedMinutes > event.start) {
+        fallbackStart = event.end;
+      }
+    }
+    suggestedStarts.add(fallbackStart);
+  }
+
+  const splittableOverlap = overlappingEvents.find(event => {
+    if (event.id.startsWith('routine-') || event.id.startsWith('shift-') || event.id.startsWith('task-')) {
+      return false;
+    }
+    const beforeMinutes = targetStart - event.start;
+    const afterMinutes = event.end - targetEnd;
+    return targetStart > event.start && targetEnd < event.end && beforeMinutes >= 10 && afterMinutes >= 10;
+  });
+
+  return {
+    overlaps: overlappingEvents,
+    suggestedTimes: Array.from(suggestedStarts)
+      .sort((a, b) => Math.abs(a - targetStart) - Math.abs(b - targetStart))
+      .slice(0, 3)
+      .map(minutesToTime),
+    splitEvent: splittableOverlap
+      ? {
+          id: splittableOverlap.id,
+          title: splittableOverlap.title,
+          location: splittableOverlap.location,
+          date: splittableOverlap.date,
+          originalStart: splittableOverlap.timeString,
+          originalDuration: splittableOverlap.estimatedMinutes || 60,
+          beforeStart: minutesToTime(splittableOverlap.start),
+          beforeDuration: targetStart - splittableOverlap.start,
+          afterStart: minutesToTime(targetEnd),
+          afterDuration: splittableOverlap.end - targetEnd,
+        }
+      : null,
+  };
+};
+
+const summarizeBudgetUpdate = (data: any) => {
+  const changes: string[] = [];
+  if (data?.jpyCash !== undefined) changes.push(`現金 ${formatMoney(Number(data.jpyCash) || 0)}`);
+  if (data?.usdAmount !== undefined) changes.push(`USD ${(Number(data.usdAmount) || 0).toLocaleString()}`);
+  if (data?.monthlyFixedCosts !== undefined) changes.push(`固定費 ${formatMoney(Number(data.monthlyFixedCosts) || 0)}`);
+  if (data?.setupDone === true) changes.push('家計簿の初期設定');
+  return changes.length > 0 ? changes.join(' / ') : '資産情報';
+};
+
+const isConvenienceStoreTrip = (title: string, location?: string) => {
+  const text = `${title} ${location || ''}`.toLowerCase();
+  return ['コンビニ', '7-eleven', 'seven eleven', 'セブン', 'ローソン', 'lawson', 'ファミマ', 'familymart', 'ミニストップ']
+    .some(keyword => text.includes(keyword));
+};
+
+const parseShoppingSubtasks = (input: string) =>
+  input
+    .split(/[、,\n・]/)
+    .map(item => item.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
 export default function BrainDumpScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -57,7 +172,12 @@ export default function BrainDumpScreen() {
 
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<{ label: string; onConfirm: () => void } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    label: string;
+    onConfirm?: () => void;
+    choices?: { label: string; onSelect: () => void; primary?: boolean }[];
+    confirmText?: string;
+  } | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [fetchingSuggestions, setFetchingSuggestions] = useState(false);
 
@@ -174,6 +294,44 @@ export default function BrainDumpScreen() {
   const handleProcessText = async (overrideText?: any) => {
     const input = overrideText || text;
     if (!input.trim() || loading) return;
+
+    const latestAssistantMessage = [...chatHistory].reverse().find(message => message.role === 'assistant');
+    const pendingShoppingTask = [...tasks].reverse().find(task =>
+      task.status === 'todo' &&
+      task.title.startsWith('[予定]') &&
+      isConvenienceStoreTrip(task.title) &&
+      (!task.subtasks || task.subtasks.length === 0)
+    );
+
+    if (
+      latestAssistantMessage?.content?.includes('コンビニで買うものも決めておきますか？') &&
+      pendingShoppingTask
+    ) {
+      const userMsg: ChatMessage = { id: Math.random().toString(), role: 'user', content: input.trim() };
+      addChatMessage(userMsg);
+      setText('');
+
+      const shoppingItems = parseShoppingSubtasks(input.trim());
+      if (shoppingItems.length > 0) {
+        updateTask(pendingShoppingTask.id, {
+          subtasks: shoppingItems,
+          originalText: `${pendingShoppingTask.originalText || pendingShoppingTask.title}\n買うもの: ${shoppingItems.join('、')}`,
+        });
+        addChatMessage({
+          id: `shopping-subtasks-${Date.now()}`,
+          role: 'assistant',
+          content: `買うものをチェックリストに入れておきました。${shoppingItems.join('、')}`,
+        });
+      } else {
+        addChatMessage({
+          id: `shopping-subtasks-empty-${Date.now()}`,
+          role: 'assistant',
+          content: '買うものがうまく取れませんでした。牛乳、パン、ティッシュのように短く並べてもらえればチェックリストに入れます。',
+        });
+      }
+      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+      return;
+    }
     
     const userMsg: ChatMessage = { id: Math.random().toString(), role: 'user', content: input.trim() };
     addChatMessage(userMsg);
@@ -195,16 +353,46 @@ export default function BrainDumpScreen() {
         actionType: (result.type !== 'general' ? result.type : undefined) as any,
         actionData: result.data || (result.travelTime ? { travelTime: result.travelTime, destination: result.destination } : null)
       };
+      let shouldAddBotMessage = true;
+
+      const finalizeSuccess = () => {
+        addChatMessage(botMsg);
+        setLastFailedText(null);
+
+        const nowTs = Date.now();
+        if (!fetchingSuggestions && nowTs - lastSuggestionFetch.current > SUGGESTION_COOLDOWN) {
+          lastSuggestionFetch.current = nowTs;
+          refreshAI();
+        }
+      };
+
+      const queueConfirmation = (label: string, onConfirm: () => void) => {
+        shouldAddBotMessage = false;
+        setConfirmAction({
+          label,
+          onConfirm: () => {
+            onConfirm();
+            finalizeSuccess();
+          },
+          confirmText: '確認',
+        });
+      };
 
       // Handle Actions
       if (result.type === 'expense') {
         const amount = Number(result.data?.amount) || 0;
         const description = result.data?.description || '支出';
-        addExpense(amount, description);
+        queueConfirmation(
+          `${description} を ${formatMoney(amount)} の支出として記録しますか？`,
+          () => addExpense(amount, description)
+        );
       } else if (result.type === 'income') {
         const amount = Number(result.data?.amount) || 0;
         const description = result.data?.title || result.data?.description || '収入';
-        addIncome(amount, description);
+        queueConfirmation(
+          `${description} を ${formatMoney(amount)} の収入として記録しますか？`,
+          () => addIncome(amount, description)
+        );
       } else if (result.type === 'budget_update') {
         const d = result.data || {};
         const updates: any = {};
@@ -212,54 +400,131 @@ export default function BrainDumpScreen() {
         if (d.usdAmount !== undefined) updates.usdAmount = Number(d.usdAmount) || 0;
         if (d.monthlyFixedCosts !== undefined) updates.monthlyFixedCosts = Number(d.monthlyFixedCosts) || 0;
         if (d.setupDone !== undefined) updates.setupDone = !!d.setupDone;
-        updateFinancialAssets(updates);
+        queueConfirmation(
+          `${summarizeBudgetUpdate(d)} を家計簿に反映しますか？`,
+          () => updateFinancialAssets(updates)
+        );
       } else if (result.type === 'schedule') {
         const eventData = result.data || {};
         const eventTitle = eventData.title || '外出予定';
-        const rawTime = eventData.timeString;
+        const rawTime = eventData.timeString || eventData.scheduledTime;
         const eventTime = (rawTime && /^\d{2}:\d{2}$/.test(rawTime)) ? rawTime : '00:00';
         const eventDate = eventData.date || toLocalDateString(new Date());
         const eventLocation = eventData.location || result.destination || '';
-        
-        addEvent({
-          id: `ev-${Date.now()}`,
+        const eventDuration = eventData.estimatedMinutes || 60;
+        const scheduleSummary = [eventDate, eventTime !== '00:00' ? eventTime : null, eventLocation || null]
+          .filter(Boolean)
+          .join(' / ');
+        const scheduleConflict = buildScheduleConflictSuggestion({
           title: eventTitle,
           date: eventDate,
           timeString: eventTime,
-          location: eventLocation,
-          estimatedMinutes: eventData.estimatedMinutes || 60
-        });
+          estimatedMinutes: eventDuration,
+        }, events);
 
-        // 食事関連の予定はタスク不要
-        const mealKeywords = ['朝食', '昼食', '夕食', '飲み会', 'ご飯', 'lunch', 'dinner'];
-        const isMeal = mealKeywords.some(k => eventTitle.toLowerCase().includes(k));
+        const applySchedule = (finalTime: string) => {
+            addEvent({
+              id: `ev-${Date.now()}`,
+              title: eventTitle,
+              date: eventDate,
+              timeString: finalTime,
+              location: eventLocation,
+              estimatedMinutes: eventDuration
+            });
 
-        if (!isMeal) addTask({
-          id: `tk-ev-${Date.now()}`,
-          title: `[予定] ${eventTitle} (${eventTime})`,
-          estimatedCost: 0,
-          estimatedMinutes: 60,
-          status: 'todo',
-          dueDate: eventDate,
-        });
+            const mealKeywords = ['朝食', '昼食', '夕食', '飲み会', 'ご飯', 'lunch', 'dinner'];
+            const isMeal = mealKeywords.some(k => eventTitle.toLowerCase().includes(k));
 
-        const hasNavigation = !!(eventLocation && locationData.coords && result.needsNavigation !== false);
-        if (hasNavigation) {
-          getTravelTimes(locationData.coords!, eventLocation!).then(times => {
-            if (times) {
-              addChatMessage({
-                id: `travel-${Date.now()}`,
-                role: 'assistant',
-                content: '',
-                actionType: 'travel',
-                actionData: { destination: eventLocation, travelTimes: times },
+            if (!isMeal) {
+              addTask({
+                id: `tk-ev-${Date.now()}`,
+                title: `[予定] ${eventTitle} (${finalTime})`,
+                estimatedCost: 0,
+                estimatedMinutes: 60,
+                status: 'todo',
+                subtasks: [],
+                dueDate: eventDate,
               });
-              const travelMin = Math.min(times.driving ?? 999, times.walking ?? 999);
-              if (travelMin < 999 && eventTime !== '00:00') {
-                scheduleDepartureAlert({ eventTitle, eventDate, eventTime, travelMinutes: travelMin, destination: eventLocation! }).catch(() => {});
-              }
             }
-          }).catch(() => {});
+
+            const hasNavigation = !!(eventLocation && locationData.coords && result.needsNavigation !== false);
+            if (hasNavigation) {
+              getTravelTimes(locationData.coords!, eventLocation!).then(times => {
+                if (times) {
+                  addChatMessage({
+                    id: `travel-${Date.now()}`,
+                    role: 'assistant',
+                    content: '',
+                    actionType: 'travel',
+                    actionData: { destination: eventLocation, travelTimes: times },
+                  });
+                  const travelMin = Math.min(times.driving ?? 999, times.walking ?? 999);
+                  if (travelMin < 999 && finalTime !== '00:00') {
+                    scheduleDepartureAlert({ eventTitle, eventDate, eventTime: finalTime, travelMinutes: travelMin, destination: eventLocation! }).catch(() => {});
+                  }
+                }
+              }).catch(() => {});
+            }
+
+            if (isConvenienceStoreTrip(eventTitle, eventLocation)) {
+              addChatMessage({
+                id: `conv-followup-${Date.now()}`,
+                role: 'assistant',
+                content: 'コンビニで買うものも決めておきますか？思いつくものをそのまま送ってください。',
+              });
+            }
+        };
+
+        if (scheduleConflict) {
+          shouldAddBotMessage = false;
+          setConfirmAction({
+            label: `「${eventTitle}」は ${scheduleConflict.overlaps.map(event => `${event.timeString} ${event.title}`).join(' / ')} と重なっています。入れる時間を選んでください。`,
+            choices: [
+              ...scheduleConflict.suggestedTimes.map((suggestedTime, index) => ({
+                label: `${suggestedTime} に変更`,
+                primary: index === 0,
+                onSelect: () => {
+                  applySchedule(suggestedTime);
+                  finalizeSuccess();
+                },
+              })),
+              ...(scheduleConflict.splitEvent ? [{
+                label: `${scheduleConflict.splitEvent.title} を分割してここに入れる`,
+                onSelect: () => {
+                  deleteEvent(scheduleConflict.splitEvent!.id);
+                  addEvent({
+                    id: `ev-split-before-${Date.now()}`,
+                    title: scheduleConflict.splitEvent!.title,
+                    date: scheduleConflict.splitEvent!.date,
+                    timeString: scheduleConflict.splitEvent!.beforeStart,
+                    location: scheduleConflict.splitEvent!.location,
+                    estimatedMinutes: scheduleConflict.splitEvent!.beforeDuration,
+                  });
+                  applySchedule(eventTime);
+                  addEvent({
+                    id: `ev-split-after-${Date.now()}`,
+                    title: scheduleConflict.splitEvent!.title,
+                    date: scheduleConflict.splitEvent!.date,
+                    timeString: scheduleConflict.splitEvent!.afterStart,
+                    location: scheduleConflict.splitEvent!.location,
+                    estimatedMinutes: scheduleConflict.splitEvent!.afterDuration,
+                  });
+                  finalizeSuccess();
+                },
+              }] : []),
+              {
+                label: '重ねたまま追加',
+                onSelect: () => {
+                  applySchedule(eventTime);
+                  finalizeSuccess();
+                },
+              },
+            ],
+          });
+        } else {
+          queueConfirmation(`${eventTitle}${scheduleSummary ? ` (${scheduleSummary})` : ''} を予定に追加しますか？`, () => {
+            applySchedule(eventTime);
+          });
         }
       } else if (result.type === 'delete_task') {
         const targetTitle = result.data?.targetTitle;
@@ -314,45 +579,81 @@ export default function BrainDumpScreen() {
             if (result.data?.newTime) changes.timeString = result.data.newTime;
             const newTitle = changes.title || match.title;
             const newTime = changes.timeString || match.timeString;
+            const newDate = changes.date || match.date;
+            const nextDuration = match.estimatedMinutes || 60;
+            const scheduleConflict = buildScheduleConflictSuggestion({
+              title: newTitle,
+              date: newDate,
+              timeString: newTime,
+              estimatedMinutes: nextDuration,
+            }, events, match.id);
             setConfirmAction({
-              label: `予定「${match.title}」を「${newTitle}」に変更しますか？`,
-              onConfirm: () => {
-                updateEvent(match.id, changes);
-                const relatedTask = tasks.find(t => t.title.includes(match.title) && t.title.includes('[予定]'));
-                if (relatedTask) updateTask(relatedTask.id, { title: `[予定] ${newTitle} (${newTime})`, dueDate: changes.date || match.date });
-              },
+              label: scheduleConflict
+                ? `予定「${match.title}」は ${scheduleConflict.overlaps.map(event => `${event.timeString} ${event.title}`).join(' / ')} と重なっています。変更時間を選んでください。`
+                : `予定「${match.title}」を「${newTitle}」に変更しますか？`,
+              ...(scheduleConflict
+                ? {
+                    choices: scheduleConflict.suggestedTimes.map((suggestedTime, index) => ({
+                      label: `${suggestedTime} に変更`,
+                      primary: index === 0,
+                      onSelect: () => {
+                        const finalChanges = {
+                          ...changes,
+                          timeString: suggestedTime,
+                          date: newDate,
+                        };
+                        updateEvent(match.id, finalChanges);
+                        const relatedTask = tasks.find(t => t.title.includes(match.title) && t.title.includes('[予定]'));
+                        if (relatedTask) updateTask(relatedTask.id, { title: `[予定] ${newTitle} (${suggestedTime})`, dueDate: newDate });
+                      },
+                    })),
+                  }
+                : {
+                    onConfirm: () => {
+                      const finalChanges = {
+                        ...changes,
+                        date: newDate,
+                      };
+                      updateEvent(match.id, finalChanges);
+                      const relatedTask = tasks.find(t => t.title.includes(match.title) && t.title.includes('[予定]'));
+                      const finalTime = finalChanges.timeString || match.timeString;
+                      if (relatedTask) updateTask(relatedTask.id, { title: `[予定] ${newTitle} (${finalTime})`, dueDate: newDate });
+                    },
+                    confirmText: '確認',
+                  }),
             });
           }
         }
       } else if (result.type === 'task') {
         const rawTasks = Array.isArray(result.data) ? result.data : [result.data];
-        rawTasks.forEach((t: any) => {
-          if (t && (t.title || t.content)) {
-            addTask({
-              id: `tk-${Math.random().toString(36).substr(2, 9)}`,
-              title: t.title || t.content,
-              estimatedCost: t.estimatedCost || 0,
-              estimatedMinutes: t.estimatedMinutes || 15,
-              status: 'todo',
-              originalText: text,
-              dueDate: t.date || undefined,
-              scheduledTime: t.scheduledTime || undefined,
+        const pendingTasks = rawTasks.filter((t: any) => t && (t.title || t.content));
+        if (pendingTasks.length > 0) {
+          const taskLabel = pendingTasks.length === 1
+            ? `${pendingTasks[0].title || pendingTasks[0].content} をタスクに追加しますか？`
+            : `${pendingTasks.length}件のタスクを追加しますか？`;
+          queueConfirmation(taskLabel, () => {
+            pendingTasks.forEach((t: any) => {
+              addTask({
+                id: `tk-${Math.random().toString(36).substr(2, 9)}`,
+                title: t.title || t.content,
+                estimatedCost: t.estimatedCost || 0,
+                estimatedMinutes: t.estimatedMinutes || 15,
+                status: 'todo',
+                originalText: input.trim(),
+                dueDate: t.date || undefined,
+                scheduledTime: t.scheduledTime || undefined,
+              });
             });
-          }
-        });
+          });
+        }
       }
 
       if (result.userInsight) {
         addUserInsight(result.userInsight);
       }
 
-      addChatMessage(botMsg);
-      setLastFailedText(null);
-      
-      const nowTs = Date.now();
-      if (!fetchingSuggestions && nowTs - lastSuggestionFetch.current > SUGGESTION_COOLDOWN) {
-        lastSuggestionFetch.current = nowTs;
-        refreshAI();
+      if (shouldAddBotMessage) {
+        finalizeSuccess();
       }
     } catch (e) {
       console.error("handleProcessText Error:", e);
@@ -360,7 +661,7 @@ export default function BrainDumpScreen() {
       addChatMessage({ 
         id: Date.now().toString(), 
         role: 'assistant', 
-        content: '申し訳ありません、通信エラーが発生しました。やり直しますか？',
+        content: '通信に失敗しました。もう一度送るか、内容を短く分けて試してください。急ぎならタスク・カレンダー・家計簿の各画面から手動でも確認できます。',
         actionType: 'retry' as any 
       });
     } finally {
@@ -691,14 +992,33 @@ export default function BrainDumpScreen() {
       <View style={styles.confirmOverlay}>
         <View style={styles.confirmBox}>
           <Text style={styles.confirmLabel}>{confirmAction?.label}</Text>
-          <View style={styles.confirmButtons}>
-            <TouchableOpacity style={styles.confirmCancel} onPress={() => setConfirmAction(null)}>
-              <Text style={styles.confirmCancelText}>キャンセル</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.confirmOk} onPress={() => { confirmAction?.onConfirm(); setConfirmAction(null); }}>
-              <Text style={styles.confirmOkText}>確認</Text>
-            </TouchableOpacity>
-          </View>
+          {confirmAction?.choices?.length ? (
+            <View style={styles.choiceList}>
+              {confirmAction.choices.map(choice => (
+                <TouchableOpacity
+                  key={choice.label}
+                  style={[styles.choiceButton, choice.primary && styles.choiceButtonPrimary]}
+                  onPress={() => { choice.onSelect(); setConfirmAction(null); }}
+                >
+                  <Text style={[styles.choiceButtonText, choice.primary && styles.choiceButtonTextPrimary]}>
+                    {choice.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity style={styles.confirmCancelSolo} onPress={() => setConfirmAction(null)}>
+                <Text style={styles.confirmCancelText}>キャンセル</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.confirmButtons}>
+              <TouchableOpacity style={styles.confirmCancel} onPress={() => setConfirmAction(null)}>
+                <Text style={styles.confirmCancelText}>キャンセル</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.confirmOk} onPress={() => { confirmAction?.onConfirm?.(); setConfirmAction(null); }}>
+                <Text style={styles.confirmOkText}>{confirmAction?.confirmText || '確認'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -824,11 +1144,32 @@ const styles = StyleSheet.create({
   sessionTitleActive: { color: colors.text },
   sessionDate: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
   confirmOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  confirmBox: { backgroundColor: colors.surface, borderRadius: 10, padding: 24, width: '80%', borderWidth: 1, borderColor: colors.borderSubtle },
+  confirmBox: { backgroundColor: colors.surface, borderRadius: 14, padding: 24, width: '82%', borderWidth: 1, borderColor: colors.borderSubtle },
   confirmLabel: { fontSize: 15, color: colors.text, marginBottom: 20, lineHeight: 22 },
   confirmButtons: { flexDirection: 'row', gap: 12 },
   confirmCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border, alignItems: 'center' },
   confirmCancelText: { fontSize: 14, color: colors.textSecondary },
   confirmOk: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: colors.text, alignItems: 'center' },
   confirmOkText: { fontSize: 14, color: colors.background, fontWeight: '600' },
+  choiceList: { gap: 10 },
+  choiceButton: {
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+  },
+  choiceButtonPrimary: {
+    backgroundColor: colors.text,
+    borderColor: colors.text,
+  },
+  choiceButtonText: { fontSize: 14, color: colors.text, fontWeight: '600' },
+  choiceButtonTextPrimary: { color: colors.background },
+  confirmCancelSolo: {
+    marginTop: 4,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
 });

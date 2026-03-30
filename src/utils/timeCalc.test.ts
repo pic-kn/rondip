@@ -150,6 +150,12 @@ describe('calcAvailableMinutes', () => {
       const events = [makeEvent({ id: 'e1', title: 'A', timeString: '15:00', estimatedMinutes: 120 })];
       expect(calcAvailableMinutes(events, DEFAULT_SLEEP, FUTURE_DATE, now)).toBe(420);
     });
+
+    it('進行中の予定は現在時刻以降の残り分だけ差し引かれる', () => {
+      const now = new Date('2099-12-31T14:00:00');
+      const events = [makeEvent({ id: 'e1', title: 'A', timeString: '13:00', estimatedMinutes: 120 })];
+      expect(calcAvailableMinutes(events, DEFAULT_SLEEP, FUTURE_DATE, now)).toBe(480);
+    });
   });
 
   describe('境界値・異常値（メチャクチャな使い方）', () => {
@@ -174,6 +180,23 @@ describe('calcAvailableMinutes', () => {
     it('就寝時間が起床時間より前（逆転）でも0以上を返す', () => {
       const sleep: SleepSettings = { wakeTime: '23:00', bedTime: '07:00' };
       expect(calcAvailableMinutes([], sleep, FUTURE_DATE, FUTURE_NOW)).toBeGreaterThanOrEqual(0);
+    });
+
+    it('夜またぎの生活リズムでは翌日未明までを残り時間に含める', () => {
+      const sleep: SleepSettings = { wakeTime: '07:00', bedTime: '01:00' };
+      expect(calcAvailableMinutes([], sleep, FUTURE_DATE, FUTURE_NOW)).toBe(1080);
+    });
+
+    it('夜またぎ設定で今日の23:30時点なら翌1:00までの90分を返す', () => {
+      const sleep: SleepSettings = { wakeTime: '07:00', bedTime: '01:00' };
+      const now = new Date('2099-12-31T23:30:00');
+      expect(calcAvailableMinutes([], sleep, FUTURE_DATE, now)).toBe(90);
+    });
+
+    it('夜またぎ設定では同日の深夜イベントを前日ぶんとして除外する', () => {
+      const sleep: SleepSettings = { wakeTime: '07:00', bedTime: '01:00' };
+      const events = [makeEvent({ id: 'late', title: '深夜イベント', timeString: '00:30', estimatedMinutes: 30 })];
+      expect(calcAvailableMinutes(events, sleep, FUTURE_DATE, FUTURE_NOW)).toBe(1080);
     });
 
     it('予定リストが空でも正常に動作する', () => {

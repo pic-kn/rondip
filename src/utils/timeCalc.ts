@@ -18,10 +18,28 @@ export function calcAvailableMinutes(
   const [bH, bM] = sleepSettings.bedTime.split(':').map(Number);
   const wakeTotal = wH * 60 + wM;
   const bedTotal = bH * 60 + bM;
-  const startFrom = isToday
-    ? Math.max(now.getHours() * 60 + now.getMinutes(), wakeTotal)
-    : wakeTotal;
-  const totalMinutes = Math.max(0, bedTotal - startFrom);
+  const crossesMidnight = bedTotal < wakeTotal;
+  const nowTotal = now.getHours() * 60 + now.getMinutes();
+  const windowStart = isToday ? Math.max(nowTotal, wakeTotal) : wakeTotal;
+
+  let totalMinutes: number;
+  let windowEnd: number;
+
+  if (bedTotal === wakeTotal) {
+    totalMinutes = 0;
+    windowEnd = wakeTotal;
+  } else if (crossesMidnight) {
+    if (isToday && nowTotal < wakeTotal) {
+      totalMinutes = (24 * 60 - wakeTotal) + bedTotal;
+      windowEnd = 24 * 60;
+    } else {
+      totalMinutes = Math.max(0, (24 * 60 - windowStart) + bedTotal);
+      windowEnd = 24 * 60;
+    }
+  } else {
+    totalMinutes = Math.max(0, bedTotal - windowStart);
+    windowEnd = bedTotal;
+  }
 
   // ルーティンは朝食・夕食のみカウント
   const blocks = events
@@ -32,9 +50,13 @@ export function calcAvailableMinutes(
     })
     .map(e => {
       const [h, m] = e.timeString.split(':').map(Number);
-      const start = h * 60 + m;
-      return { start, end: start + (e.estimatedMinutes || 60) };
+      const rawStart = h * 60 + m;
+      const rawEnd = rawStart + (e.estimatedMinutes || 60);
+      const start = Math.max(rawStart, windowStart);
+      const end = Math.min(rawEnd, windowEnd);
+      return { start, end };
     })
+    .filter(block => block.end > block.start)
     .sort((a, b) => a.start - b.start);
 
   // 重複するブロックをマージ

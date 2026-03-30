@@ -88,11 +88,11 @@ export default function ShiftScreen() {
           </View>
           <View style={styles.timeRow}>
             <Text style={styles.timeLabel}>開始</Text>
-            <NativeTimePickervalue={workSchedule.fixedStartTime} onChange={v => updateWorkSchedule({ fixedStartTime: v })} />
+            <NativeTimePicker value={workSchedule.fixedStartTime} onChange={v => updateWorkSchedule({ fixedStartTime: v })} />
           </View>
           <View style={styles.timeRow}>
             <Text style={styles.timeLabel}>終了</Text>
-            <NativeTimePickervalue={workSchedule.fixedEndTime} onChange={v => updateWorkSchedule({ fixedEndTime: v })} />
+            <NativeTimePicker value={workSchedule.fixedEndTime} onChange={v => updateWorkSchedule({ fixedEndTime: v })} />
           </View>
         </View>
       )}
@@ -121,11 +121,11 @@ export default function ShiftScreen() {
                 />
                 <View style={styles.timeRow}>
                   <Text style={styles.timeLabel}>開始</Text>
-                  <NativeTimePickervalue={newStart} onChange={setNewStart} />
+                  <NativeTimePicker value={newStart} onChange={setNewStart} />
                 </View>
                 <View style={styles.timeRow}>
                   <Text style={styles.timeLabel}>終了</Text>
-                  <NativeTimePickervalue={newEnd} onChange={setNewEnd} />
+                  <NativeTimePicker value={newEnd} onChange={setNewEnd} />
                 </View>
                 <TouchableOpacity
                   style={[styles.saveBtn, !newName.trim() && { opacity: 0.4 }]}
@@ -224,11 +224,11 @@ export default function ShiftScreen() {
         <Text style={styles.sectionTitle}>睡眠設定</Text>
         <View style={styles.timeRow}>
           <Text style={styles.timeLabel}>起床時間</Text>
-          <NativeTimePickervalue={sleepSettings.wakeTime} onChange={v => updateSleepSettings({ wakeTime: v })} />
+          <NativeTimePicker value={sleepSettings.wakeTime} onChange={v => updateSleepSettings({ wakeTime: v })} />
         </View>
         <View style={styles.timeRow}>
           <Text style={styles.timeLabel}>就寝時間</Text>
-          <NativeTimePickervalue={sleepSettings.bedTime} onChange={v => updateSleepSettings({ bedTime: v })} />
+          <NativeTimePicker value={sleepSettings.bedTime} onChange={v => updateSleepSettings({ bedTime: v })} />
         </View>
       </View>
 

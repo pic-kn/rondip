@@ -30,6 +30,11 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "extra": {}
+    "extra": {
+      "eas": {
+        "projectId": "0784784a-7432-41f1-9594-7e84854c4ad0"
+      }
+    },
+    "owner": "autoloop"
   }
 }
