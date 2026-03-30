@@ -467,31 +467,24 @@ export default function BrainDumpScreen() {
     if (msg.actionType === 'travel') {
       const { destination, travelTimes } = msg.actionData;
       const origin = locationData.coords ? `${locationData.coords.latitude},${locationData.coords.longitude}` : null;
-      const allModes: { key: 'driving' | 'walking' | 'transit'; icon: keyof typeof Ionicons.glyphMap; time: number; suffix?: string; maxMin: number }[] = [
-        { key: 'driving', icon: 'car-outline', time: travelTimes.driving, maxMin: 600 },
-        { key: 'transit', icon: 'train-outline', time: travelTimes.transit, suffix: '（概算）', maxMin: 600 },
-        { key: 'walking', icon: 'walk-outline', time: travelTimes.walking, maxMin: 60 },
-      ];
-      const modes = allModes.filter(m => m.time <= m.maxMin);
+      const bestMinutes = Math.min(
+        travelTimes.driving ?? 999,
+        travelTimes.transit ?? 999,
+        travelTimes.walking <= 60 ? travelTimes.walking : 999,
+      );
+      const displayTime = bestMinutes < 999 ? formatDuration(bestMinutes) : null;
       return (
-        <View style={[styles.actionCard, { flexDirection: 'column', alignItems: 'flex-start', gap: 8 }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-            <Ionicons name="location" size={16} color={colors.text} />
-            <Text style={[typography.body, { fontWeight: '700', marginLeft: 6 }]}>{destination}</Text>
-          </View>
-          {modes.map(({ key, icon, time, suffix }) => (
-            <View key={key} style={styles.travelRow}>
-              <Ionicons name={icon} size={18} color={colors.textSecondary} />
-              <Text style={styles.travelTime}>{formatDuration(time)}{suffix ?? ''}</Text>
-              <TouchableOpacity
-                style={styles.travelMapBtn}
-                onPress={() => Linking.openURL(getGoogleMapsUrl(origin, destination, key))}
-              >
-                <Ionicons name="map-outline" size={14} color={colors.background} />
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
+        <TouchableOpacity
+          style={styles.travelSimpleCard}
+          onPress={() => Linking.openURL(getGoogleMapsUrl(origin, destination))}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="location" size={16} color={colors.text} />
+          <Text style={styles.travelSimpleText}>
+            {destination}{displayTime ? `まで約${displayTime}` : ''}
+          </Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.border} />
+        </TouchableOpacity>
       );
     }
 
@@ -803,6 +796,13 @@ const styles = StyleSheet.create({
   travelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   travelTime: { ...typography.body, color: colors.text, fontWeight: '600', flex: 1 },
   travelMapBtn: { backgroundColor: colors.text, borderRadius: 8, padding: 6 },
+  travelSimpleCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: colors.surface, borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12,
+    borderWidth: 1, borderColor: colors.borderSubtle,
+  },
+  travelSimpleText: { ...typography.body, color: colors.text, fontWeight: '600', flex: 1 },
   taskCheckChip: { 
     flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, paddingHorizontal: 16, paddingVertical: 10,
     borderRadius: 20, marginRight: 8, borderWidth: 1, borderColor: colors.borderSubtle, shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
