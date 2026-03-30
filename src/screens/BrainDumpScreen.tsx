@@ -335,6 +335,8 @@ export default function BrainDumpScreen() {
               estimatedMinutes: t.estimatedMinutes || 15,
               status: 'todo',
               originalText: text,
+              dueDate: t.date || undefined,
+              scheduledTime: t.scheduledTime || undefined,
             });
           }
         });

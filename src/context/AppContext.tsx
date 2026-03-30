@@ -8,6 +8,7 @@ import {
   BudgetSession, BudgetTransaction
 } from '../types';
 import { toLocalDateStr, calcAvailableMinutes } from '../utils/timeCalc';
+import { scheduleTaskReminder, cancelNotification } from '../services/notifications';
 
 export type { 
   Task, AppEvent, ChatMessage, ChatSession, Routine, 
@@ -319,28 +320,93 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     });
   }, [workSchedule, isReady]);
 
-  const addTask = (task: Task) => setTasks((prev) => {
-    const isRoutineTask = task.id.startsWith('r-');
-    const hasUserTask = prev.some(t => !t.id.startsWith('r-'));
-    // 最初のユーザータスク登録時にルーティンタスクを削除
-    const base = (!isRoutineTask && !hasUserTask)
-      ? prev.filter(t => !t.id.startsWith('r-'))
-      : prev;
-    return [...base, task];
-  });
+  const syncTaskEvent = (task: Task) => {
+    const eventId = `task-${task.id}`;
+    if (task.scheduledTime && task.status === 'todo') {
+      const date = task.dueDate || toLocalDateStr(new Date());
+      const taskEvent: AppEvent = {
+        id: eventId,
+        title: task.title,
+        date,
+        timeString: task.scheduledTime,
+        estimatedMinutes: task.estimatedMinutes,
+      };
+      setEvents(prev => {
+        const without = prev.filter(e => e.id !== eventId);
+        return [...without, taskEvent];
+      });
+    } else {
+      setEvents(prev => prev.filter(e => e.id !== eventId));
+    }
+  };
+
+  const addTask = (task: Task) => {
+    if (task.scheduledTime) {
+      const date = task.dueDate || toLocalDateStr(new Date());
+      scheduleTaskReminder({ taskTitle: task.title, taskDate: date, taskTime: task.scheduledTime })
+        .then(notifId => {
+          const taskWithNotif = notifId ? { ...task, notificationId: notifId } : task;
+          setTasks((prev) => {
+            const isRoutineTask = task.id.startsWith('r-');
+            const hasUserTask = prev.some(t => !t.id.startsWith('r-'));
+            const base = (!isRoutineTask && !hasUserTask) ? prev.filter(t => !t.id.startsWith('r-')) : prev;
+            return [...base, taskWithNotif];
+          });
+          syncTaskEvent(taskWithNotif);
+        });
+      return;
+    }
+    setTasks((prev) => {
+      const isRoutineTask = task.id.startsWith('r-');
+      const hasUserTask = prev.some(t => !t.id.startsWith('r-'));
+      const base = (!isRoutineTask && !hasUserTask) ? prev.filter(t => !t.id.startsWith('r-')) : prev;
+      return [...base, task];
+    });
+  };
 
   const updateTask = (id: string, changes: Partial<Task>) => {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...changes } : t)));
+    setTasks((prev) => {
+      const updated = prev.map((t) => {
+        if (t.id !== id) return t;
+        const next = { ...t, ...changes };
+        // 時間が変わった場合は古い通知をキャンセルして再スケジュール
+        if (changes.scheduledTime !== undefined && t.notificationId) {
+          cancelNotification(t.notificationId).catch(() => {});
+        }
+        if (next.scheduledTime && next.status === 'todo') {
+          const date = next.dueDate || toLocalDateStr(new Date());
+          scheduleTaskReminder({ taskTitle: next.title, taskDate: date, taskTime: next.scheduledTime })
+            .then(notifId => {
+              if (notifId) {
+                setTasks(p => p.map(tt => tt.id === id ? { ...tt, notificationId: notifId } : tt));
+              }
+            });
+        }
+        syncTaskEvent(next);
+        return next;
+      });
+      return updated;
+    });
   };
 
   const deleteTask = (id: string) => {
-    setTasks(prev => prev.filter(t => t.id !== id));
+    setTasks(prev => {
+      const task = prev.find(t => t.id === id);
+      if (task?.notificationId) cancelNotification(task.notificationId).catch(() => {});
+      return prev.filter(t => t.id !== id);
+    });
+    setEvents(prev => prev.filter(e => e.id !== `task-${id}`));
   };
 
   const completeTask = (id: string) => {
     setTasks((prev) =>
-      prev.map((t) => t.id === id ? { ...t, status: 'completed' } : t)
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        if (t.notificationId) cancelNotification(t.notificationId).catch(() => {});
+        return { ...t, status: 'completed' };
+      })
     );
+    setEvents(prev => prev.filter(e => e.id !== `task-${id}`));
   };
 
   const addExpense = (amount: number, description: string) => {

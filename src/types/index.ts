@@ -6,6 +6,8 @@ export interface Task {
   status: 'todo' | 'completed';
   originalText?: string;
   dueDate?: string; // YYYY-MM-DD（予定から作られたタスクの日付）
+  scheduledTime?: string; // HH:MM（時間指定）
+  notificationId?: string; // expo-notificationsのID
 }
 
 export interface AppEvent {
