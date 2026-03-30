@@ -115,7 +115,9 @@ export default function TaskExecutionScreen() {
                   {/* タスク情報 */}
                   <View style={styles.taskInfo}>
                     <Text style={styles.taskTitle}>{task.title}</Text>
-                    <Text style={styles.taskSubtitle}>{formatDuration(task.estimatedMinutes)}</Text>
+                    <Text style={styles.taskSubtitle}>
+                      {task.scheduledTime ? `${task.scheduledTime} · ` : ''}{formatDuration(task.estimatedMinutes)}
+                    </Text>
                   </View>
 
                   {/* 細分化ボタン */}

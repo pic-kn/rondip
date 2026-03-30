@@ -116,7 +116,7 @@ ${historyContext}
 - "update_schedule": 既存の予定・イベントの変更
 - "delete_schedule": 既存の予定・イベントの削除
 - "schedule": 日時・場所を伴う外出・イベントの【新規作成】
-- "task": 時間指定なく自分で完結できる行動の【新規作成】
+- "task": 自分で完結できる行動の【新規作成】（時間指定があってもtaskとして登録）
 - "expense": 支出記録（コーヒー 500円、家賃 8万など）。
 - "income": 収入記録（給料 20万、月収 35など）。
 - "budget_update": 資産の初期設定や現在の残高報告（現金が5万ある、USDを$100持っている、など）。
@@ -140,6 +140,7 @@ ${historyContext}
     "title": "項目名",
     "amount": 数値(実金額単位。35万なら350000),
     "date": "YYYY-MM-DD",
+    "scheduledTime": "HH:MM または null（taskで時間指定がある場合のみ）",
     // budget_update の場合:
     "jpyCash": 数値(任意),
     "usdAmount": 数値(任意),

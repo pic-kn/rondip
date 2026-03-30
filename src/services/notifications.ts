@@ -89,6 +89,36 @@ export async function scheduleEventReminder(params: {
   return id;
 }
 
+// タスクリマインダー（指定時刻の5分前）
+export async function scheduleTaskReminder(params: {
+  taskTitle: string;
+  taskDate: string;
+  taskTime: string;
+}): Promise<string | null> {
+  const { taskTitle, taskDate, taskTime } = params;
+
+  const [year, month, day] = taskDate.split('-').map(Number);
+  const [hour, minute] = taskTime.split(':').map(Number);
+  const taskDateTime = new Date(year, month - 1, day, hour, minute);
+  const notifyTime = new Date(taskDateTime.getTime() - 5 * 60 * 1000);
+
+  if (notifyTime <= new Date()) return null;
+
+  const id = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: `もうすぐタスクの時間です`,
+      body: `「${taskTitle}」が ${taskTime} に始まります。`,
+      sound: true,
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: notifyTime,
+    },
+  });
+
+  return id;
+}
+
 // 通知をキャンセル
 export async function cancelNotification(id: string): Promise<void> {
   await Notifications.cancelScheduledNotificationAsync(id);
