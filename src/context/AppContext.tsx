@@ -42,6 +42,15 @@ const DEFAULT_SLEEP_SETTINGS: SleepSettings = {
   bedTime: '23:00',
 };
 
+const normalizeWorkSchedule = (raw?: Partial<WorkSchedule> | null): WorkSchedule => ({
+  ...DEFAULT_WORK_SCHEDULE,
+  ...raw,
+  workplaces: (raw?.workplaces || []).map(wp => ({
+    ...wp,
+    daysOff: wp.daysOff || [],
+  })),
+});
+
 
 interface AppContextProps {
   tasks: Task[];
@@ -178,7 +187,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
           if (parsed.spareTime !== undefined) setSpareTime(parsed.spareTime);
           if (parsed.routines) setRoutines(parsed.routines);
           if (parsed.lastSyncDate) setLastSyncDate(parsed.lastSyncDate);
-          if (parsed.workSchedule) setWorkSchedule(parsed.workSchedule);
+          if (parsed.workSchedule) setWorkSchedule(normalizeWorkSchedule(parsed.workSchedule));
           if (parsed.sleepSettings) setSleepSettings(parsed.sleepSettings);
           if (parsed.financialAssets) setFinancialAssets(parsed.financialAssets);
           if (parsed.budgetTransactions) setBudgetTransactions(parsed.budgetTransactions);
@@ -238,7 +247,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
 
         // 今日のシフトをイベントとして追加
-        const ws = parsed?.workSchedule as WorkSchedule | undefined;
+        const ws = parsed?.workSchedule ? normalizeWorkSchedule(parsed.workSchedule) : undefined;
         if (ws) {
           let shiftInfo: { startTime: string; endTime: string; name: string } | null = null;
           if (ws.type === 'fixed') {
@@ -562,7 +571,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const updatePaydayDate = (day: number) => setPaydayDate(day);
 
   const updateWorkSchedule = (ws: Partial<WorkSchedule>) =>
-    setWorkSchedule(prev => ({ ...prev, ...ws }));
+    setWorkSchedule(prev => normalizeWorkSchedule({ ...prev, ...ws }));
 
   const updateSleepSettings = (ss: Partial<SleepSettings>) =>
     setSleepSettings(prev => ({ ...prev, ...ss }));
@@ -572,7 +581,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const newId = `wp-${Date.now()}`;
     setWorkSchedule(prev => ({
       ...prev,
-      workplaces: [...(prev.workplaces || []), { ...workplace, id: newId }],
+      workplaces: [...(prev.workplaces || []), { ...workplace, id: newId, daysOff: workplace.daysOff || [] }],
       activeWorkplaceId: prev.activeWorkplaceId ?? newId,
     }));
   };
@@ -591,7 +600,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setWorkSchedule(prev => ({
       ...prev,
       workplaces: prev.workplaces.map(w =>
-        w.id === workplaceId ? { ...w, daysOff: [...new Set([...w.daysOff, date])] } : w
+        w.id === workplaceId ? { ...w, daysOff: [...new Set([...(w.daysOff || []), date])] } : w
       ),
     }));
 
@@ -599,7 +608,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setWorkSchedule(prev => ({
       ...prev,
       workplaces: prev.workplaces.map(w =>
-        w.id === workplaceId ? { ...w, daysOff: w.daysOff.filter(d => d !== date) } : w
+        w.id === workplaceId ? { ...w, daysOff: (w.daysOff || []).filter(d => d !== date) } : w
       ),
     }));
 
@@ -614,7 +623,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
     // シフト制：アクティブ勤務先があり、その日が休みでなければ勤務
     const wp = (workSchedule.workplaces || []).find(w => w.id === workSchedule.activeWorkplaceId);
-    if (wp && !wp.daysOff.includes(target)) {
+    if (wp && !(wp.daysOff || []).includes(target)) {
       return { id: `shift-${target}`, date: target, startTime: wp.startTime, endTime: wp.endTime };
     }
     return null;

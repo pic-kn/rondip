@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { useAppContext } from '../context/AppContext';
+import NativeDatePicker from '../components/NativeDatePicker';
 import NativeTimePicker from '../components/NativeTimePicker';
 
 const DAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -36,12 +37,6 @@ export default function ShiftScreen() {
 
   const [addingDayOffFor, setAddingDayOffFor] = useState<string | null>(null);
   const [newDayOff, setNewDayOff] = useState(toLocalDateStr(new Date()));
-
-  const adjustDayOff = (delta: number) => {
-    const d = new Date(newDayOff + 'T12:00:00');
-    d.setDate(d.getDate() + delta);
-    setNewDayOff(toLocalDateStr(d));
-  };
 
   const activeWp = workplaces.find(w => w.id === workSchedule.activeWorkplaceId);
 
@@ -184,11 +179,7 @@ export default function ShiftScreen() {
                 <View style={styles.addForm}>
                   <View style={styles.timeRow}>
                     <Text style={styles.timeLabel}>日付</Text>
-                    <View style={styles.timePicker}>
-                      <TouchableOpacity onPress={() => adjustDayOff(-1)} style={styles.arrowBtn}><Text style={styles.arrow}>◀</Text></TouchableOpacity>
-                      <Text style={[styles.timeText, { minWidth: 80 }]}>{formatDate(newDayOff)}</Text>
-                      <TouchableOpacity onPress={() => adjustDayOff(1)} style={styles.arrowBtn}><Text style={styles.arrow}>▶</Text></TouchableOpacity>
-                    </View>
+                    <NativeDatePicker value={newDayOff} onChange={setNewDayOff} />
                   </View>
                   <TouchableOpacity
                     style={styles.saveBtn}
@@ -202,7 +193,7 @@ export default function ShiftScreen() {
               {/* 今月・来月の休み */}
               {(() => {
                 const today = toLocalDateStr(new Date());
-                const upcoming = activeWp.daysOff.filter(d => d >= today).sort();
+                const upcoming = (activeWp.daysOff || []).filter(d => d >= today).sort();
                 return upcoming.length === 0
                   ? <Text style={styles.emptyText}>登録済みの休みはありません</Text>
                   : upcoming.map(d => (
