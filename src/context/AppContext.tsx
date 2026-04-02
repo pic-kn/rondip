@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Task, AppEvent, ChatMessage, ChatSession, Routine,
   ShiftEntry, WorkplacePreset, WorkSchedule, SleepSettings,
+  ShiftOverride,
   DeviceAsset, FutureExpense, FinancialAssets, BudgetMessage,
   BudgetSession, BudgetTransaction
 } from '../types';
@@ -13,6 +14,7 @@ import { scheduleTaskReminder, cancelNotification } from '../services/notificati
 export type { 
   Task, AppEvent, ChatMessage, ChatSession, Routine, 
   ShiftEntry, WorkplacePreset, WorkSchedule, SleepSettings, 
+  ShiftOverride,
   DeviceAsset, FutureExpense, FinancialAssets, BudgetMessage, 
   BudgetSession, BudgetTransaction 
 };
@@ -35,6 +37,7 @@ const DEFAULT_WORK_SCHEDULE: WorkSchedule = {
   fixedEndTime: '18:00',
   activeWorkplaceId: null,
   workplaces: [],
+  shiftOverrides: [],
 };
 
 const DEFAULT_SLEEP_SETTINGS: SleepSettings = {
@@ -49,7 +52,56 @@ const normalizeWorkSchedule = (raw?: Partial<WorkSchedule> | null): WorkSchedule
     ...wp,
     daysOff: wp.daysOff || [],
   })),
+  shiftOverrides: (raw?.shiftOverrides || []).map(ov => ({
+    ...ov,
+    isDayOff: !!ov.isDayOff,
+  })),
 });
+
+const resolveShiftForDate = (ws: WorkSchedule, date: string): ShiftEntry | null => {
+  if (ws.type === 'fixed') {
+    const day = new Date(`${date}T12:00:00`).getDay();
+    if (ws.fixedDays.includes(day)) {
+      return {
+        id: `fixed-${date}`,
+        date,
+        startTime: ws.fixedStartTime,
+        endTime: ws.fixedEndTime,
+        name: '勤務',
+      };
+    }
+    return null;
+  }
+
+  const wp = (ws.workplaces || []).find(w => w.id === ws.activeWorkplaceId);
+  if (!wp) return null;
+
+  const override = (ws.shiftOverrides || []).find(ov => ov.workplaceId === wp.id && ov.date === date);
+  if (override) {
+    if (override.isDayOff) return null;
+    if (override.startTime && override.endTime) {
+      return {
+        id: override.id,
+        date,
+        startTime: override.startTime,
+        endTime: override.endTime,
+        workplaceId: wp.id,
+        name: wp.name,
+      };
+    }
+  }
+
+  if ((wp.daysOff || []).includes(date)) return null;
+
+  return {
+    id: `shift-${date}`,
+    date,
+    startTime: wp.startTime,
+    endTime: wp.endTime,
+    workplaceId: wp.id,
+    name: wp.name,
+  };
+};
 
 
 interface AppContextProps {
@@ -95,6 +147,8 @@ interface AppContextProps {
   setActiveWorkplace: (id: string | null) => void;
   addDayOff: (workplaceId: string, date: string) => void;
   removeDayOff: (workplaceId: string, date: string) => void;
+  addShiftOverride: (override: Omit<ShiftOverride, 'id'>) => void;
+  removeShiftOverride: (id: string) => void;
   getTodayWorkShift: (dateStr?: string) => ShiftEntry | null;
   getAvailableMinutes: (dateStr?: string) => number;
 
@@ -249,18 +303,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         // 今日のシフトをイベントとして追加
         const ws = parsed?.workSchedule ? normalizeWorkSchedule(parsed.workSchedule) : undefined;
         if (ws) {
-          let shiftInfo: { startTime: string; endTime: string; name: string } | null = null;
-          if (ws.type === 'fixed') {
-            const dow = new Date(today + 'T12:00:00').getDay();
-            if (ws.fixedDays.includes(dow)) {
-              shiftInfo = { startTime: ws.fixedStartTime, endTime: ws.fixedEndTime, name: '勤務' };
-            }
-          } else {
-            const wp = (ws.workplaces || []).find(w => w.id === ws.activeWorkplaceId);
-            if (wp && !wp.daysOff.includes(today)) {
-              shiftInfo = { startTime: wp.startTime, endTime: wp.endTime, name: wp.name };
-            }
-          }
+          const shiftInfo = resolveShiftForDate(ws, today);
           if (shiftInfo) {
             const [sH, sM] = shiftInfo.startTime.split(':').map(Number);
             const [eH, eM] = shiftInfo.endTime.split(':').map(Number);
@@ -302,18 +345,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     if (!isReady) return;
     const today = toLocalDateStr(new Date());
-    let shiftInfo: { startTime: string; endTime: string; name: string } | null = null;
-    if (workSchedule.type === 'fixed') {
-      const dow = new Date(today + 'T12:00:00').getDay();
-      if (workSchedule.fixedDays.includes(dow)) {
-        shiftInfo = { startTime: workSchedule.fixedStartTime, endTime: workSchedule.fixedEndTime, name: '勤務' };
-      }
-    } else {
-      const wp = (workSchedule.workplaces || []).find(w => w.id === workSchedule.activeWorkplaceId);
-      if (wp && !wp.daysOff.includes(today)) {
-        shiftInfo = { startTime: wp.startTime, endTime: wp.endTime, name: wp.name };
-      }
-    }
+    const shiftInfo = resolveShiftForDate(workSchedule, today);
     setEvents(prev => {
       const without = prev.filter(e => e.id !== `shift-${today}`);
       if (!shiftInfo) return without;
@@ -612,21 +644,30 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       ),
     }));
 
+  const addShiftOverride = (override: Omit<ShiftOverride, 'id'>) =>
+    setWorkSchedule(prev => {
+      const nextOverride: ShiftOverride = {
+        ...override,
+        id: `sov-${Date.now()}`,
+      };
+      const filtered = (prev.shiftOverrides || []).filter(
+        ov => !(ov.workplaceId === override.workplaceId && ov.date === override.date)
+      );
+      return {
+        ...prev,
+        shiftOverrides: [...filtered, nextOverride].sort((a, b) => a.date.localeCompare(b.date)),
+      };
+    });
+
+  const removeShiftOverride = (id: string) =>
+    setWorkSchedule(prev => ({
+      ...prev,
+      shiftOverrides: (prev.shiftOverrides || []).filter(ov => ov.id !== id),
+    }));
+
   const getTodayWorkShift = (dateStr?: string): ShiftEntry | null => {
     const target = dateStr || toLocalDateStr(new Date());
-    if (workSchedule.type === 'fixed') {
-      const day = new Date(target + 'T12:00:00').getDay();
-      if (workSchedule.fixedDays.includes(day)) {
-        return { id: `fixed-${target}`, date: target, startTime: workSchedule.fixedStartTime, endTime: workSchedule.fixedEndTime };
-      }
-      return null;
-    }
-    // シフト制：アクティブ勤務先があり、その日が休みでなければ勤務
-    const wp = (workSchedule.workplaces || []).find(w => w.id === workSchedule.activeWorkplaceId);
-    if (wp && !(wp.daysOff || []).includes(target)) {
-      return { id: `shift-${target}`, date: target, startTime: wp.startTime, endTime: wp.endTime };
-    }
-    return null;
+    return resolveShiftForDate(workSchedule, target);
   };
 
   const getAvailableMinutes = (dateStr?: string): number => {
@@ -680,7 +721,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       spareTime, setSpareTime,
       routines, addRoutine, syncRoutines,
       workSchedule, sleepSettings, updateWorkSchedule, updateSleepSettings,
-      addWorkplace, deleteWorkplace, setActiveWorkplace, addDayOff, removeDayOff, getTodayWorkShift, getAvailableMinutes,
+      addWorkplace, deleteWorkplace, setActiveWorkplace, addDayOff, removeDayOff, addShiftOverride, removeShiftOverride, getTodayWorkShift, getAvailableMinutes,
       financialAssets, updateFinancialAssets, budgetTransactions, addBudgetTransaction, removeBudgetTransaction, paydayDate, updatePaydayDate,
       budgetSessions, currentBudgetSessionId, budgetMessages, addBudgetMessage, createNewBudgetSession, switchBudgetSession, deleteBudgetSession,
       clearData,

@@ -1,12 +1,14 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Dimensions, Linking,
+  Dimensions, Linking, Modal, TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
-import { useAppContext } from '../context/AppContext';
+import { AppEvent, ShiftEntry, ShiftOverride, useAppContext } from '../context/AppContext';
 import { getGoogleMapsUrl } from '../services/maps';
+import NativeDatePicker from '../components/NativeDatePicker';
+import NativeTimePicker from '../components/NativeTimePicker';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -17,6 +19,10 @@ const TIME_COL_WIDTH = 44;
 const HOURS = Array.from({ length: TIMELINE_END - TIMELINE_START }, (_, i) => i + TIMELINE_START);
 
 type ViewMode = 'timeline' | 'week' | 'month';
+type EditorState =
+  | { type: 'event'; event: AppEvent }
+  | { type: 'shift'; shift: ShiftEntry; override?: ShiftOverride | null }
+  | null;
 
 const toLocalDateString = (date: Date): string => {
   const y = date.getFullYear();
@@ -34,10 +40,17 @@ const minutesToY = (minutes: number): number =>
   ((minutes - TIMELINE_START * 60) / 60) * HOUR_HEIGHT;
 
 export default function CalendarScreen() {
-  const { events, getTodayWorkShift, workSchedule } = useAppContext();
+  const { events, getTodayWorkShift, workSchedule, updateEvent, deleteEvent, updateTask, addShiftOverride, removeShiftOverride } = useAppContext();
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
   const [selectedDate, setSelectedDate] = useState(toLocalDateString(new Date()));
   const [currentViewDate, setCurrentViewDate] = useState(new Date());
+  const [editor, setEditor] = useState<EditorState>(null);
+  const [editorTitle, setEditorTitle] = useState('');
+  const [editorDate, setEditorDate] = useState(selectedDate);
+  const [editorTime, setEditorTime] = useState('09:00');
+  const [editorDuration, setEditorDuration] = useState('60');
+  const [editorLocation, setEditorLocation] = useState('');
+  const [editorIsDayOff, setEditorIsDayOff] = useState(false);
   const timelineScrollRef = useRef<ScrollView>(null);
 
   const groupedEvents = useMemo(() => {
@@ -50,6 +63,94 @@ export default function CalendarScreen() {
   }, [events]);
 
   const sortedDates = useMemo(() => Object.keys(groupedEvents).sort(), [groupedEvents]);
+
+  const activeShiftOverride = (date: string, workplaceId?: string | null) =>
+    (workSchedule.shiftOverrides || []).find(ov => ov.date === date && ov.workplaceId === workplaceId);
+
+  const openEventEditor = (event: AppEvent) => {
+    setEditor({ type: 'event', event });
+    setEditorTitle(event.title);
+    setEditorDate(event.date);
+    setEditorTime(event.timeString);
+    setEditorDuration(String(event.estimatedMinutes || 60));
+    setEditorLocation(event.location || '');
+    setEditorIsDayOff(false);
+  };
+
+  const openShiftEditor = (shift: ShiftEntry) => {
+    const override = activeShiftOverride(shift.date, shift.workplaceId);
+    setEditor({ type: 'shift', shift, override });
+    setEditorTitle(shift.name || '勤務');
+    setEditorDate(shift.date);
+    setEditorTime(shift.startTime);
+    setEditorDuration(String(Math.max(0, timeToMinutes(shift.endTime) - timeToMinutes(shift.startTime))));
+    setEditorLocation('');
+    setEditorIsDayOff(false);
+  };
+
+  const closeEditor = () => setEditor(null);
+
+  const saveEditor = () => {
+    if (!editor) return;
+    const duration = Math.max(5, Number(editorDuration) || 60);
+
+    if (editor.type === 'event') {
+      if (editor.event.id.startsWith('task-')) {
+        const taskId = editor.event.id.replace(/^task-/, '');
+        updateTask(taskId, {
+          title: editorTitle.trim() || editor.event.title,
+          dueDate: editorDate,
+          scheduledTime: editorTime,
+          estimatedMinutes: duration,
+        });
+      } else {
+        updateEvent(editor.event.id, {
+          title: editorTitle.trim() || editor.event.title,
+          date: editorDate,
+          timeString: editorTime,
+          estimatedMinutes: duration,
+          location: editorLocation.trim() || undefined,
+        });
+      }
+      closeEditor();
+      return;
+    }
+
+    if (!editor.shift.workplaceId) {
+      closeEditor();
+      return;
+    }
+
+    const startMinutes = timeToMinutes(editorTime);
+    const endMinutes = Math.min(24 * 60, startMinutes + duration);
+    const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
+
+    addShiftOverride({
+      workplaceId: editor.shift.workplaceId,
+      date: editorDate,
+      isDayOff: editorIsDayOff,
+      startTime: editorIsDayOff ? undefined : editorTime,
+      endTime: editorIsDayOff ? undefined : endTime,
+    });
+    closeEditor();
+  };
+
+  const resetShiftEditor = () => {
+    if (editor?.type === 'shift' && editor.override) {
+      removeShiftOverride(editor.override.id);
+    }
+    closeEditor();
+  };
+
+  const deleteEditorEvent = () => {
+    if (editor?.type !== 'event') return;
+    if (editor.event.id.startsWith('task-') || editor.event.id.startsWith('routine-')) {
+      closeEditor();
+      return;
+    }
+    deleteEvent(editor.event.id);
+    closeEditor();
+  };
 
   // タイムライン表示時に現在時刻へ自動スクロール
   useEffect(() => {
@@ -174,11 +275,16 @@ export default function CalendarScreen() {
             const endMin = timeToMinutes(shift.endTime);
             const top = minutesToY(startMin);
             const height = ((endMin - startMin) / 60) * HOUR_HEIGHT;
-            const wp = (workSchedule.workplaces || []).find(w => w.startTime === shift.startTime && w.endTime === shift.endTime);
+            const wp = (workSchedule.workplaces || []).find(w => w.id === shift.workplaceId)
+              || (workSchedule.workplaces || []).find(w => w.startTime === shift.startTime && w.endTime === shift.endTime);
             return (
-              <View style={[styles.shiftBlock, { top, height }]}>
-                <Text style={styles.shiftBlockText}>{wp?.name ?? '勤務'} {shift.startTime}〜{shift.endTime}</Text>
-              </View>
+              <TouchableOpacity
+                style={[styles.shiftBlock, { top, height }]}
+                activeOpacity={shift.workplaceId ? 0.85 : 1}
+                onPress={() => shift.workplaceId && openShiftEditor(shift)}
+              >
+                <Text style={styles.shiftBlockText}>{shift.name ?? wp?.name ?? '勤務'} {shift.startTime}〜{shift.endTime}</Text>
+              </TouchableOpacity>
             );
           })()}
 
@@ -221,7 +327,7 @@ export default function CalendarScreen() {
                 key={event.id}
                 style={[styles.eventBlock, { top, height: blockHeight }]}
                 activeOpacity={0.8}
-                onPress={() => event.location && Linking.openURL(getGoogleMapsUrl(null, event.location))}
+                onPress={() => openEventEditor(event)}
               >
                 <Text style={styles.eventBlockTitle} numberOfLines={blockHeight < 52 ? 1 : 2}>{event.title}</Text>
                 {blockHeight >= 54 && event.location && (
@@ -256,7 +362,8 @@ export default function CalendarScreen() {
       a.timeString.localeCompare(b.timeString)
     );
     const shift = getTodayWorkShift(dateStr);
-    const wp = shift ? (workSchedule.workplaces || []).find(w => w.startTime === shift.startTime && w.endTime === shift.endTime) : null;
+    const wp = shift ? ((workSchedule.workplaces || []).find(w => w.id === shift.workplaceId)
+      || (workSchedule.workplaces || []).find(w => w.startTime === shift.startTime && w.endTime === shift.endTime)) : null;
 
     if (dayEvents.length === 0 && !shift) {
       return <Text style={styles.noEventText}>予定はありません</Text>;
@@ -264,13 +371,17 @@ export default function CalendarScreen() {
     return (
       <>
         {shift && (
-          <View style={styles.shiftCard}>
+          <TouchableOpacity
+            style={styles.shiftCard}
+            activeOpacity={shift.workplaceId ? 0.8 : 1}
+            onPress={() => shift.workplaceId && openShiftEditor(shift)}
+          >
             <Ionicons name="briefcase-outline" size={14} color={colors.textSecondary} style={{ marginRight: 6 }} />
-            <Text style={styles.shiftCardText}>{wp?.name ?? '勤務'} {shift.startTime}〜{shift.endTime}</Text>
-          </View>
+            <Text style={styles.shiftCardText}>{shift.name ?? wp?.name ?? '勤務'} {shift.startTime}〜{shift.endTime}</Text>
+          </TouchableOpacity>
         )}
         {dayEvents.map(event => (
-      <View key={event.id} style={styles.eventCard}>
+      <TouchableOpacity key={event.id} style={styles.eventCard} activeOpacity={0.85} onPress={() => openEventEditor(event)}>
         <View style={styles.eventCardTime}>
           <Text style={styles.eventCardTimeText}>{event.timeString}</Text>
           <View style={styles.eventCardLine} />
@@ -290,7 +401,7 @@ export default function CalendarScreen() {
             <Text style={styles.durationText}>{event.estimatedMinutes}分</Text>
           )}
         </View>
-      </View>
+      </TouchableOpacity>
     ))}
       </>
     );
@@ -390,6 +501,123 @@ export default function CalendarScreen() {
           </ScrollView>
         </View>
       )}
+
+      <Modal visible={!!editor} transparent animationType="slide" onRequestClose={closeEditor}>
+        <View style={styles.editorOverlay}>
+          <View style={styles.editorSheet}>
+            <View style={styles.editorHeader}>
+              <Text style={styles.editorTitle}>{editor?.type === 'shift' ? '勤務を調整' : '予定を調整'}</Text>
+              <TouchableOpacity onPress={closeEditor}>
+                <Ionicons name="close" size={22} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {editor?.type === 'event' && (
+              <>
+                <View style={styles.editorRow}>
+                  <Text style={styles.editorLabel}>予定名</Text>
+                  <TextInput
+                    style={styles.editorInput}
+                    value={editorTitle}
+                    onChangeText={setEditorTitle}
+                    placeholder="予定名"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                </View>
+                <View style={styles.editorRow}>
+                  <Text style={styles.editorLabel}>日付</Text>
+                  <NativeDatePicker value={editorDate} onChange={setEditorDate} />
+                </View>
+                <View style={styles.editorRow}>
+                  <Text style={styles.editorLabel}>開始</Text>
+                  <NativeTimePicker value={editorTime} onChange={setEditorTime} />
+                </View>
+                <View style={styles.editorRow}>
+                  <Text style={styles.editorLabel}>分数</Text>
+                  <TextInput
+                    style={[styles.editorInput, styles.durationInput]}
+                    value={editorDuration}
+                    onChangeText={setEditorDuration}
+                    keyboardType="number-pad"
+                    placeholder="60"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                </View>
+                {!editor.event.id.startsWith('task-') && (
+                  <View style={styles.editorRow}>
+                    <Text style={styles.editorLabel}>場所</Text>
+                    <TextInput
+                      style={styles.editorInput}
+                      value={editorLocation}
+                      onChangeText={setEditorLocation}
+                      placeholder="場所"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                )}
+              </>
+            )}
+
+            {editor?.type === 'shift' && (
+              <>
+                <View style={styles.editorRow}>
+                  <Text style={styles.editorLabel}>日付</Text>
+                  <NativeDatePicker value={editorDate} onChange={setEditorDate} />
+                </View>
+                <TouchableOpacity
+                  style={[styles.dayOffToggle, editorIsDayOff && styles.dayOffToggleActive]}
+                  onPress={() => setEditorIsDayOff(v => !v)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={editorIsDayOff ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={18}
+                    color={editorIsDayOff ? colors.background : colors.textSecondary}
+                  />
+                  <Text style={[styles.dayOffToggleText, editorIsDayOff && styles.dayOffToggleTextActive]}>
+                    この日は休みにする
+                  </Text>
+                </TouchableOpacity>
+                {!editorIsDayOff && (
+                  <>
+                    <View style={styles.editorRow}>
+                      <Text style={styles.editorLabel}>開始</Text>
+                      <NativeTimePicker value={editorTime} onChange={setEditorTime} />
+                    </View>
+                    <View style={styles.editorRow}>
+                      <Text style={styles.editorLabel}>分数</Text>
+                      <TextInput
+                        style={[styles.editorInput, styles.durationInput]}
+                        value={editorDuration}
+                        onChangeText={setEditorDuration}
+                        keyboardType="number-pad"
+                        placeholder="480"
+                        placeholderTextColor={colors.textSecondary}
+                      />
+                    </View>
+                  </>
+                )}
+              </>
+            )}
+
+            <View style={styles.editorActions}>
+              {editor?.type === 'shift' && editor.override && (
+                <TouchableOpacity style={styles.secondaryAction} onPress={resetShiftEditor}>
+                  <Text style={styles.secondaryActionText}>標準に戻す</Text>
+                </TouchableOpacity>
+              )}
+              {editor?.type === 'event' && !editor.event.id.startsWith('task-') && !editor.event.id.startsWith('routine-') && (
+                <TouchableOpacity style={styles.secondaryAction} onPress={deleteEditorEvent}>
+                  <Text style={styles.secondaryActionText}>削除</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={styles.primaryAction} onPress={saveEditor}>
+                <Text style={styles.primaryActionText}>保存</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -538,6 +766,86 @@ const styles = StyleSheet.create({
     borderRadius: 12, padding: 12, marginBottom: 8,
   },
   shiftCardText: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
+
+  editorOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.28)',
+    justifyContent: 'flex-end',
+  },
+  editorSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 32,
+    gap: 14,
+  },
+  editorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  editorTitle: { fontSize: 18, fontWeight: '700', color: colors.text },
+  editorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  editorLabel: { width: 52, fontSize: 14, color: colors.text, fontWeight: '600' },
+  editorInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+    color: colors.text,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  durationInput: {
+    flex: 0,
+    width: 92,
+    textAlign: 'right',
+  },
+  dayOffToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  dayOffToggleActive: {
+    backgroundColor: colors.text,
+    borderColor: colors.text,
+  },
+  dayOffToggleText: { fontSize: 14, fontWeight: '600', color: colors.text },
+  dayOffToggleTextActive: { color: colors.background },
+  editorActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 8,
+  },
+  secondaryAction: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  secondaryActionText: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
+  primaryAction: {
+    backgroundColor: colors.text,
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+  },
+  primaryActionText: { fontSize: 14, fontWeight: '700', color: colors.background },
 
   // 月カレンダー
   monthNav: {

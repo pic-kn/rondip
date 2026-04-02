@@ -26,9 +26,10 @@ export default function ShiftScreen() {
     workSchedule, sleepSettings,
     updateWorkSchedule, updateSleepSettings,
     addWorkplace, deleteWorkplace, setActiveWorkplace,
-    addDayOff, removeDayOff,
+    addDayOff, removeDayOff, addShiftOverride, removeShiftOverride,
   } = useAppContext();
   const workplaces = workSchedule.workplaces || [];
+  const shiftOverrides = workSchedule.shiftOverrides || [];
 
   const [showAddWorkplace, setShowAddWorkplace] = useState(false);
   const [newName, setNewName] = useState('');
@@ -37,8 +38,16 @@ export default function ShiftScreen() {
 
   const [addingDayOffFor, setAddingDayOffFor] = useState<string | null>(null);
   const [newDayOff, setNewDayOff] = useState(toLocalDateStr(new Date()));
+  const [showShiftAdjustForm, setShowShiftAdjustForm] = useState(false);
+  const [adjustDate, setAdjustDate] = useState(toLocalDateStr(new Date()));
+  const [adjustStart, setAdjustStart] = useState('09:00');
+  const [adjustEnd, setAdjustEnd] = useState('18:00');
+  const [adjustIsDayOff, setAdjustIsDayOff] = useState(false);
 
   const activeWp = workplaces.find(w => w.id === workSchedule.activeWorkplaceId);
+  const upcomingOverrides = activeWp
+    ? shiftOverrides.filter(ov => ov.workplaceId === activeWp.id && ov.date >= toLocalDateStr(new Date())).sort((a, b) => a.date.localeCompare(b.date))
+    : [];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 60 }}>
@@ -207,6 +216,98 @@ export default function ShiftScreen() {
               })()}
             </View>
           )}
+
+          {activeWp && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>{activeWp.name} の個別調整</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowShiftAdjustForm(v => !v);
+                    setAdjustDate(toLocalDateStr(new Date()));
+                    setAdjustStart(activeWp.startTime);
+                    setAdjustEnd(activeWp.endTime);
+                    setAdjustIsDayOff(false);
+                  }}
+                  style={styles.addBtn}
+                >
+                  <Ionicons name={showShiftAdjustForm ? 'close' : 'create-outline'} size={18} color={colors.text} />
+                  <Text style={styles.addBtnText}>{showShiftAdjustForm ? '閉じる' : '調整を追加'}</Text>
+                </TouchableOpacity>
+              </View>
+
+              {showShiftAdjustForm && (
+                <View style={styles.addForm}>
+                  <View style={styles.timeRow}>
+                    <Text style={styles.timeLabel}>日付</Text>
+                    <NativeDatePicker value={adjustDate} onChange={setAdjustDate} />
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.overrideTypeBtn, adjustIsDayOff && styles.overrideTypeBtnActive]}
+                    onPress={() => setAdjustIsDayOff(v => !v)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={adjustIsDayOff ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={18}
+                      color={adjustIsDayOff ? colors.background : colors.textSecondary}
+                    />
+                    <Text style={[styles.overrideTypeText, adjustIsDayOff && styles.overrideTypeTextActive]}>
+                      この日は休みにする
+                    </Text>
+                  </TouchableOpacity>
+
+                  {!adjustIsDayOff && (
+                    <>
+                      <View style={styles.timeRow}>
+                        <Text style={styles.timeLabel}>開始</Text>
+                        <NativeTimePicker value={adjustStart} onChange={setAdjustStart} />
+                      </View>
+                      <View style={styles.timeRow}>
+                        <Text style={styles.timeLabel}>終了</Text>
+                        <NativeTimePicker value={adjustEnd} onChange={setAdjustEnd} />
+                      </View>
+                    </>
+                  )}
+
+                  <TouchableOpacity
+                    style={styles.saveBtn}
+                    onPress={() => {
+                      addShiftOverride({
+                        workplaceId: activeWp.id,
+                        date: adjustDate,
+                        isDayOff: adjustIsDayOff,
+                        startTime: adjustIsDayOff ? undefined : adjustStart,
+                        endTime: adjustIsDayOff ? undefined : adjustEnd,
+                      });
+                      setShowShiftAdjustForm(false);
+                    }}
+                  >
+                    <Text style={styles.saveBtnText}>保存</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {upcomingOverrides.length === 0 && !showShiftAdjustForm && (
+                <Text style={styles.emptyText}>個別調整はまだありません</Text>
+              )}
+
+              {upcomingOverrides.map(ov => (
+                <View key={ov.id} style={styles.dayOffRow}>
+                  <View style={styles.overrideInfo}>
+                    <Text style={styles.dayOffDate}>{formatDate(ov.date)}</Text>
+                    <Text style={styles.overrideMeta}>
+                      {ov.isDayOff ? '終日休み' : `${ov.startTime} — ${ov.endTime}`}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => removeShiftOverride(ov.id)} style={styles.deleteBtn}>
+                    <Ionicons name="close-circle-outline" size={18} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
         </>
       )}
 
@@ -262,5 +363,24 @@ const styles = StyleSheet.create({
   deleteBtn: { padding: 6 },
   dayOffRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSubtle },
   dayOffDate: { flex: 1, fontSize: 14, color: colors.text },
+  overrideInfo: { flex: 1 },
+  overrideMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  overrideTypeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  overrideTypeBtnActive: {
+    backgroundColor: colors.text,
+    borderColor: colors.text,
+  },
+  overrideTypeText: { fontSize: 14, fontWeight: '600', color: colors.text },
+  overrideTypeTextActive: { color: colors.background },
   emptyText: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', paddingVertical: 12 },
 });

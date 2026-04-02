@@ -46,6 +46,8 @@ export interface ShiftEntry {
   date: string; // YYYY-MM-DD
   startTime: string; // HH:MM
   endTime: string; // HH:MM
+  workplaceId?: string;
+  name?: string;
 }
 
 export interface WorkplacePreset {
@@ -54,6 +56,15 @@ export interface WorkplacePreset {
   startTime: string;
   endTime: string;
   daysOff: string[]; // YYYY-MM-DD（休みの日）
+}
+
+export interface ShiftOverride {
+  id: string;
+  workplaceId: string;
+  date: string; // YYYY-MM-DD
+  isDayOff: boolean;
+  startTime?: string; // HH:MM
+  endTime?: string; // HH:MM
 }
 
 export interface WorkSchedule {
@@ -65,6 +76,7 @@ export interface WorkSchedule {
   // シフトモード（勤務先ベース）
   activeWorkplaceId: string | null; // 現在の勤務先
   workplaces: WorkplacePreset[];
+  shiftOverrides: ShiftOverride[];
 }
 
 export interface SleepSettings {
