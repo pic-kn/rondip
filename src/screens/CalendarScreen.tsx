@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Dimensions, Linking, Modal, TextInput, KeyboardAvoidingView, Platform,
+  Dimensions, Linking, Modal, TextInput, KeyboardAvoidingView, Platform, NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
@@ -13,12 +13,15 @@ import NativeTimePicker from '../components/NativeTimePicker';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const HOUR_HEIGHT = 64;
-const TIMELINE_START = 6;   // 6:00
+const TIMELINE_START = 0;   // 0:00
 const TIMELINE_END = 24;    // 24:00
+const TIMELINE_DAY_COUNT = 7;
+const TIMELINE_DAY_HEADER_HEIGHT = 36;
 const TIME_COL_WIDTH = 44;
+const TIMELINE_SECTION_HEIGHT = ((TIMELINE_END - TIMELINE_START) * HOUR_HEIGHT) + TIMELINE_DAY_HEADER_HEIGHT;
 const HOURS = Array.from({ length: TIMELINE_END - TIMELINE_START }, (_, i) => i + TIMELINE_START);
 
-type ViewMode = 'timeline' | 'week' | 'month';
+type ViewMode = 'timeline' | 'month';
 type EditorState =
   | { type: 'event'; event: AppEvent }
   | { type: 'shift'; shift: ShiftEntry; override?: ShiftOverride | null }
@@ -39,10 +42,25 @@ const timeToMinutes = (timeStr: string): number => {
 const minutesToY = (minutes: number): number =>
   ((minutes - TIMELINE_START * 60) / 60) * HOUR_HEIGHT;
 
+const toDateFromString = (dateStr: string) => new Date(`${dateStr}T12:00:00`);
+
+const formatSelectedDate = (dateStr: string) => {
+  const date = toDateFromString(dateStr);
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}（${['日', '月', '火', '水', '木', '金', '土'][date.getDay()]}）`;
+};
+
+const shiftDateString = (dateStr: string, offset: number) => {
+  const date = toDateFromString(dateStr);
+  date.setDate(date.getDate() + offset);
+  return toLocalDateString(date);
+};
+
 export default function CalendarScreen() {
+  const todayString = toLocalDateString(new Date());
   const { events, getTodayWorkShift, workSchedule, updateEvent, deleteEvent, updateTask, addShiftOverride, removeShiftOverride } = useAppContext();
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
-  const [selectedDate, setSelectedDate] = useState(toLocalDateString(new Date()));
+  const [selectedDate, setSelectedDate] = useState(todayString);
+  const [timelineAnchorDate, setTimelineAnchorDate] = useState(todayString);
   const [currentViewDate, setCurrentViewDate] = useState(new Date());
   const [editor, setEditor] = useState<EditorState>(null);
   const [editorTitle, setEditorTitle] = useState('');
@@ -52,6 +70,8 @@ export default function CalendarScreen() {
   const [editorLocation, setEditorLocation] = useState('');
   const [editorIsDayOff, setEditorIsDayOff] = useState(false);
   const timelineScrollRef = useRef<ScrollView>(null);
+  const isScrollDrivenDateChangeRef = useRef(false);
+  const shouldResetTimelinePositionRef = useRef(true);
 
   const groupedEvents = useMemo(() => {
     const grouped: { [date: string]: typeof events } = {};
@@ -66,6 +86,19 @@ export default function CalendarScreen() {
 
   const activeShiftOverride = (date: string, workplaceId?: string | null) =>
     (workSchedule.shiftOverrides || []).find(ov => ov.date === date && ov.workplaceId === workplaceId);
+
+  const timelineDates = useMemo(
+    () => Array.from({ length: TIMELINE_DAY_COUNT }, (_, index) => shiftDateString(timelineAnchorDate, index)),
+    [timelineAnchorDate]
+  );
+
+  const selectDate = (dateStr: string, options?: { syncTimeline?: boolean }) => {
+    setSelectedDate(dateStr);
+    if (options?.syncTimeline) {
+      setTimelineAnchorDate(dateStr);
+      shouldResetTimelinePositionRef.current = true;
+    }
+  };
 
   const openEventEditor = (event: AppEvent) => {
     setEditor({ type: 'event', event });
@@ -154,27 +187,25 @@ export default function CalendarScreen() {
 
   // タイムライン表示時に現在時刻へ自動スクロール
   useEffect(() => {
-    if (viewMode === 'timeline' && selectedDate === toLocalDateString(new Date())) {
+    if (isScrollDrivenDateChangeRef.current) {
+      isScrollDrivenDateChangeRef.current = false;
+      return;
+    }
+
+    if (viewMode === 'timeline' && shouldResetTimelinePositionRef.current) {
+      shouldResetTimelinePositionRef.current = false;
       const now = new Date();
       const currentMin = now.getHours() * 60 + now.getMinutes();
-      const y = minutesToY(currentMin);
+      const y = selectedDate === todayString ? Math.max(0, minutesToY(currentMin) - 120) : 0;
       setTimeout(() => {
-        timelineScrollRef.current?.scrollTo({ y: Math.max(0, y - 120), animated: true });
+        timelineScrollRef.current?.scrollTo({ y, animated: true });
       }, 300);
     }
-  }, [viewMode, selectedDate]);
+  }, [viewMode, selectedDate, timelineAnchorDate, todayString]);
 
-  const generateWeekDays = () => {
-    const days = [];
-    const start = new Date(currentViewDate);
-    start.setDate(currentViewDate.getDate() - currentViewDate.getDay());
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      days.push(d);
-    }
-    return days;
-  };
+  useEffect(() => {
+    setCurrentViewDate(toDateFromString(selectedDate));
+  }, [selectedDate]);
 
   const generateMonthDays = () => {
     const year = currentViewDate.getFullYear();
@@ -194,33 +225,44 @@ export default function CalendarScreen() {
   };
 
   // 週ストリップ（タイムライン・週共通）
-  const WeekStrip = () => (
-    <View style={styles.weekStrip}>
-      {generateWeekDays().map(day => {
-        const dStr = toLocalDateString(day);
-        const isSelected = selectedDate === dStr;
-        const isToday = dStr === toLocalDateString(new Date());
-        const hasEvents = !!groupedEvents[dStr];
-        return (
-          <TouchableOpacity
-            key={dStr}
-            style={[styles.weekDayBtn, isSelected && styles.weekDayBtnActive]}
-            onPress={() => setSelectedDate(dStr)}
-          >
-            <Text style={[styles.weekDayName, isSelected && styles.weekDayNameActive]}>
-              {['日', '月', '火', '水', '木', '金', '土'][day.getDay()]}
-            </Text>
-            <View style={[styles.weekDayNum, isSelected && styles.weekDayNumActive, isToday && !isSelected && styles.weekDayNumToday]}>
-              <Text style={[styles.weekDayNumText, isSelected && styles.weekDayNumTextActive, isToday && !isSelected && styles.weekDayNumTextToday]}>
-                {day.getDate()}
+  const WeekStrip = () => {
+    const days = [];
+    const start = new Date(currentViewDate);
+    start.setDate(currentViewDate.getDate() - currentViewDate.getDay());
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      days.push(d);
+    }
+
+    return (
+      <View style={styles.weekStrip}>
+        {days.map(day => {
+          const dStr = toLocalDateString(day);
+          const isSelected = selectedDate === dStr;
+          const isToday = dStr === toLocalDateString(new Date());
+          const hasEvents = !!groupedEvents[dStr];
+          return (
+            <TouchableOpacity
+              key={dStr}
+              style={[styles.weekDayBtn, isSelected && styles.weekDayBtnActive]}
+              onPress={() => selectDate(dStr, { syncTimeline: true })}
+            >
+              <Text style={[styles.weekDayName, isSelected && styles.weekDayNameActive]}>
+                {['日', '月', '火', '水', '木', '金', '土'][day.getDay()]}
               </Text>
-            </View>
-            {hasEvents && <View style={[styles.eventDot, isSelected && styles.eventDotActive]} />}
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
+              <View style={[styles.weekDayNum, isSelected && styles.weekDayNumActive, isToday && !isSelected && styles.weekDayNumToday]}>
+                <Text style={[styles.weekDayNumText, isSelected && styles.weekDayNumTextActive, isToday && !isSelected && styles.weekDayNumTextToday]}>
+                  {day.getDate()}
+                </Text>
+              </View>
+              {hasEvents && <View style={[styles.eventDot, isSelected && styles.eventDotActive]} />}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
 
   // 空き時間スロットを計算
   const calcFreeSlots = (dayEvents: typeof events) => {
@@ -237,8 +279,8 @@ export default function CalendarScreen() {
       prevEnd = Math.max(prevEnd, endMin);
     }
 
-    // 最後のイベント後（最大3時間まで）
-    const dayEnd = Math.min(prevEnd + 180, TIMELINE_END * 60);
+    // 最後のイベント後は24:00まで
+    const dayEnd = TIMELINE_END * 60;
     if (dayEnd - prevEnd >= 15) {
       slots.push({ start: prevEnd, end: dayEnd });
     }
@@ -246,111 +288,141 @@ export default function CalendarScreen() {
     return slots;
   };
 
+  const handleTimelineScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    const dayIndex = Math.max(
+      0,
+      Math.min(
+        timelineDates.length - 1,
+        Math.floor((offsetY + TIMELINE_DAY_HEADER_HEIGHT) / TIMELINE_SECTION_HEIGHT)
+      )
+    );
+    const visibleDate = timelineDates[dayIndex];
+
+    if (visibleDate && visibleDate !== selectedDate) {
+      isScrollDrivenDateChangeRef.current = true;
+      setSelectedDate(visibleDate);
+    }
+  };
+
   // タイムライン
   const renderTimeline = () => {
-    const dayEvents = (groupedEvents[selectedDate] || []).sort((a, b) =>
-      a.timeString.localeCompare(b.timeString)
-    );
     const now = new Date();
-    const isToday = selectedDate === toLocalDateString(now);
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const totalHeight = (TIMELINE_END - TIMELINE_START) * HOUR_HEIGHT;
-    const freeSlots = calcFreeSlots(dayEvents);
-    const shift = getTodayWorkShift(selectedDate);
+    const dayHeight = (TIMELINE_END - TIMELINE_START) * HOUR_HEIGHT;
+    const totalHeight = TIMELINE_SECTION_HEIGHT * timelineDates.length;
 
     return (
-      <ScrollView ref={timelineScrollRef} style={styles.timelineScroll}>
+      <ScrollView
+        ref={timelineScrollRef}
+        style={styles.timelineScroll}
+        onScroll={handleTimelineScroll}
+        scrollEventThrottle={16}
+      >
         <View style={[styles.timelineContent, { height: totalHeight }]}>
-          {/* 時刻ラベル + グリッド線 */}
-          {HOURS.map((hour, i) => (
-            <View key={hour} style={[styles.hourRow, { top: i * HOUR_HEIGHT }]}>
-              <Text style={styles.hourLabel}>{hour}:00</Text>
-              <View style={styles.hourLine} />
-            </View>
-          ))}
-
-          {/* シフトブロック */}
-          {shift && (() => {
-            const startMin = timeToMinutes(shift.startTime);
-            const endMin = timeToMinutes(shift.endTime);
-            const top = minutesToY(startMin);
-            const height = ((endMin - startMin) / 60) * HOUR_HEIGHT;
-            const wp = (workSchedule.workplaces || []).find(w => w.id === shift.workplaceId)
-              || (workSchedule.workplaces || []).find(w => w.startTime === shift.startTime && w.endTime === shift.endTime);
-            return (
-              <TouchableOpacity
-                style={[styles.shiftBlock, { top, height }]}
-                activeOpacity={shift.workplaceId ? 0.85 : 1}
-                onPress={() => shift.workplaceId && openShiftEditor(shift)}
-              >
-                <Text style={styles.shiftBlockText}>{shift.name ?? wp?.name ?? '勤務'} {shift.startTime}〜{shift.endTime}</Text>
-              </TouchableOpacity>
+          {timelineDates.map((dateStr, dayIndex) => {
+            const dayEvents = (groupedEvents[dateStr] || []).sort((a, b) =>
+              a.timeString.localeCompare(b.timeString)
             );
-          })()}
+            const freeSlots = calcFreeSlots(dayEvents);
+            const shift = getTodayWorkShift(dateStr);
+            const dayOffset = TIMELINE_SECTION_HEIGHT * dayIndex;
+            const timelineOffset = dayOffset + TIMELINE_DAY_HEADER_HEIGHT;
+            const isToday = dateStr === toLocalDateString(now);
 
-          {/* 空き時間ブロック */}
-          {freeSlots.map((slot, i) => {
-            const top = minutesToY(slot.start);
-            const height = ((slot.end - slot.start) / 60) * HOUR_HEIGHT;
-            const minutes = slot.end - slot.start;
-            const label = minutes >= 60
-              ? `${Math.floor(minutes / 60)}時間${minutes % 60 > 0 ? `${minutes % 60}分` : ''}の空き`
-              : `${minutes}分の空き`;
             return (
-              <View key={`free-${i}`} style={[styles.freeBlock, { top, height }]}>
-                {height >= 28 && (
-                  <Text style={styles.freeBlockText}>{label}</Text>
+              <View key={dateStr}>
+                <View style={[styles.timelineDayHeader, { top: dayOffset }]}>
+                  <Text style={styles.timelineDayHeaderText}>{formatSelectedDate(dateStr)}</Text>
+                </View>
+
+                {HOURS.map((hour, i) => (
+                  <View key={`${dateStr}-${hour}`} style={[styles.hourRow, { top: timelineOffset + i * HOUR_HEIGHT }]}>
+                    <Text style={styles.hourLabel}>{hour}:00</Text>
+                    <View style={styles.hourLine} />
+                  </View>
+                ))}
+
+                {shift && (() => {
+                  const startMin = timeToMinutes(shift.startTime);
+                  const endMin = timeToMinutes(shift.endTime);
+                  const top = timelineOffset + minutesToY(startMin);
+                  const height = ((endMin - startMin) / 60) * HOUR_HEIGHT;
+                  const wp = (workSchedule.workplaces || []).find(w => w.id === shift.workplaceId)
+                    || (workSchedule.workplaces || []).find(w => w.startTime === shift.startTime && w.endTime === shift.endTime);
+                  return (
+                    <TouchableOpacity
+                      style={[styles.shiftBlock, { top, height }]}
+                      activeOpacity={shift.workplaceId ? 0.85 : 1}
+                      onPress={() => shift.workplaceId && openShiftEditor(shift)}
+                    >
+                      <Text style={styles.shiftBlockText}>{shift.name ?? wp?.name ?? '勤務'} {shift.startTime}〜{shift.endTime}</Text>
+                    </TouchableOpacity>
+                  );
+                })()}
+
+                {freeSlots.map((slot, i) => {
+                  const top = timelineOffset + minutesToY(slot.start);
+                  const height = ((slot.end - slot.start) / 60) * HOUR_HEIGHT;
+                  const minutes = slot.end - slot.start;
+                  const label = minutes >= 60
+                    ? `${Math.floor(minutes / 60)}時間${minutes % 60 > 0 ? `${minutes % 60}分` : ''}の空き`
+                    : `${minutes}分の空き`;
+                  return (
+                    <View key={`${dateStr}-free-${i}`} style={[styles.freeBlock, { top, height }]}>
+                      {height >= 28 && (
+                        <Text style={styles.freeBlockText}>{label}</Text>
+                      )}
+                    </View>
+                  );
+                })}
+
+                {isToday && currentMinutes >= TIMELINE_START * 60 && currentMinutes < TIMELINE_END * 60 && (
+                  <View style={[styles.nowLine, { top: timelineOffset + minutesToY(currentMinutes) }]}>
+                    <View style={styles.nowDot} />
+                    <View style={styles.nowLineBar} />
+                  </View>
+                )}
+
+                {dayEvents.map(event => {
+                  const startMin = timeToMinutes(event.timeString);
+                  const duration = event.estimatedMinutes || 60;
+                  const top = timelineOffset + minutesToY(startMin);
+                  const blockHeight = Math.max((duration / 60) * HOUR_HEIGHT, 36);
+
+                  if (startMin < TIMELINE_START * 60 || startMin >= TIMELINE_END * 60) return null;
+
+                  return (
+                    <TouchableOpacity
+                      key={event.id}
+                      style={[styles.eventBlock, { top, height: blockHeight }]}
+                      activeOpacity={0.8}
+                      onPress={() => openEventEditor(event)}
+                    >
+                      <Text style={styles.eventBlockTitle} numberOfLines={blockHeight < 52 ? 1 : 2}>{event.title}</Text>
+                      {blockHeight >= 54 && event.location && (
+                        <View style={styles.eventBlockLocation}>
+                          <Ionicons name="location-outline" size={11} color={colors.textSecondary} />
+                          <Text style={styles.eventBlockLocationText} numberOfLines={1}>{event.location}</Text>
+                        </View>
+                      )}
+                      {blockHeight >= 68 && (
+                        <Text style={styles.eventBlockTime}>
+                          {event.timeString} · {duration}分
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {dayEvents.length === 0 && !shift && (
+                  <View style={[styles.noEventHint, { top: timelineOffset + HOUR_HEIGHT * 2 }]}>
+                    <Text style={styles.noEventText}>予定はありません</Text>
+                  </View>
                 )}
               </View>
             );
           })}
-
-          {/* 現在時刻ライン */}
-          {isToday && currentMinutes >= TIMELINE_START * 60 && currentMinutes < TIMELINE_END * 60 && (
-            <View style={[styles.nowLine, { top: minutesToY(currentMinutes) }]}>
-              <View style={styles.nowDot} />
-              <View style={styles.nowLineBar} />
-            </View>
-          )}
-
-          {/* イベントブロック */}
-          {dayEvents.map(event => {
-            const startMin = timeToMinutes(event.timeString);
-            const duration = event.estimatedMinutes || 60;
-            const top = minutesToY(startMin);
-            const blockHeight = Math.max((duration / 60) * HOUR_HEIGHT, 36);
-
-            if (startMin < TIMELINE_START * 60 || startMin >= TIMELINE_END * 60) return null;
-
-            return (
-              <TouchableOpacity
-                key={event.id}
-                style={[styles.eventBlock, { top, height: blockHeight }]}
-                activeOpacity={0.8}
-                onPress={() => openEventEditor(event)}
-              >
-                <Text style={styles.eventBlockTitle} numberOfLines={blockHeight < 52 ? 1 : 2}>{event.title}</Text>
-                {blockHeight >= 54 && event.location && (
-                  <View style={styles.eventBlockLocation}>
-                    <Ionicons name="location-outline" size={11} color={colors.textSecondary} />
-                    <Text style={styles.eventBlockLocationText} numberOfLines={1}>{event.location}</Text>
-                  </View>
-                )}
-                {blockHeight >= 68 && (
-                  <Text style={styles.eventBlockTime}>
-                    {event.timeString} · {duration}分
-                  </Text>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-
-          {/* 予定なし */}
-          {dayEvents.length === 0 && (
-            <View style={styles.noEventHint}>
-              <Text style={styles.noEventText}>予定はありません</Text>
-            </View>
-          )}
         </View>
       </ScrollView>
     );
@@ -412,7 +484,7 @@ export default function CalendarScreen() {
       {/* モード切替 */}
       <View style={styles.modeSwitcherContainer}>
         <View style={styles.modeSwitcher}>
-          {([['timeline', 'タイムライン'], ['week', '週'], ['month', '月']] as [ViewMode, string][]).map(([mode, label]) => (
+          {([['timeline', 'タイムライン'], ['month', '月間']] as [ViewMode, string][]).map(([mode, label]) => (
             <TouchableOpacity
               key={mode}
               style={[styles.modeBtn, viewMode === mode && styles.modeBtnActive]}
@@ -429,21 +501,17 @@ export default function CalendarScreen() {
       {/* タイムライン */}
       {viewMode === 'timeline' && (
         <View style={styles.flex}>
+          <View style={styles.timelineDateNav}>
+            <TouchableOpacity onPress={() => selectDate(shiftDateString(selectedDate, -1), { syncTimeline: true })}>
+              <Ionicons name="chevron-back" size={20} color={colors.text} />
+            </TouchableOpacity>
+            <Text style={styles.timelineDateLabel}>{formatSelectedDate(selectedDate)}</Text>
+            <TouchableOpacity onPress={() => selectDate(shiftDateString(selectedDate, 1), { syncTimeline: true })}>
+              <Ionicons name="chevron-forward" size={20} color={colors.text} />
+            </TouchableOpacity>
+          </View>
           <WeekStrip />
           {renderTimeline()}
-        </View>
-      )}
-
-      {/* 週リスト */}
-      {viewMode === 'week' && (
-        <View style={styles.flex}>
-          <WeekStrip />
-          <ScrollView contentContainerStyle={styles.listContent}>
-            <Text style={styles.listDateLabel}>
-              {selectedDate.replace(/-/g, '/')} の予定
-            </Text>
-            {renderEventList(selectedDate)}
-          </ScrollView>
         </View>
       )}
 
@@ -475,7 +543,7 @@ export default function CalendarScreen() {
                 <TouchableOpacity
                   key={dStr}
                   style={styles.monthCell}
-                  onPress={() => setSelectedDate(dStr)}
+                  onPress={() => selectDate(dStr, { syncTimeline: true })}
                 >
                   <View style={[
                     styles.monthDayInner,
@@ -637,6 +705,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSubtle,
   },
+  timelineDateNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  timelineDateLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
   modeSwitcher: {
     flexDirection: 'row', backgroundColor: '#F0EFEA',
     borderRadius: 12, padding: 4, alignSelf: 'flex-start',
@@ -667,6 +748,23 @@ const styles = StyleSheet.create({
   // タイムライン
   timelineScroll: { flex: 1 },
   timelineContent: { position: 'relative', paddingLeft: TIME_COL_WIDTH, paddingRight: 16, paddingBottom: 40 },
+  timelineDayHeader: {
+    position: 'absolute',
+    left: 0,
+    right: 16,
+    height: TIMELINE_DAY_HEADER_HEIGHT,
+    justifyContent: 'center',
+    paddingLeft: TIME_COL_WIDTH + 12,
+    backgroundColor: colors.background,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
+    zIndex: 2,
+  },
+  timelineDayHeaderText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
   hourRow: {
     position: 'absolute', left: 0, right: 16,
     flexDirection: 'row', alignItems: 'flex-start',
