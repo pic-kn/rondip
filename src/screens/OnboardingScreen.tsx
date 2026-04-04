@@ -97,6 +97,16 @@ export default function OnboardingScreen({ onComplete }: Props) {
         startTime: workplaceStart,
         endTime: workplaceEnd,
         daysOff: selectedDaysOff,
+        patterns: [
+          {
+            id: 'pattern-default',
+            name: '通常勤務',
+            startTime: workplaceStart,
+            endTime: workplaceEnd,
+            weekdays: [0, 1, 2, 3, 4, 5, 6],
+            appliesOnHolidays: false,
+          },
+        ],
       });
     }
 
@@ -631,6 +641,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.text,
+  },
+  arrowBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
+  arrow: {
+    fontSize: 14,
+    color: colors.text,
+    fontWeight: '600',
   },
   calDayHeaders: {
     flexDirection: 'row',

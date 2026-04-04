@@ -50,12 +50,25 @@ export interface ShiftEntry {
   name?: string;
 }
 
+export interface WorkplacePattern {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  weekdays: number[]; // 0=Sun ... 6=Sat
+  appliesOnHolidays?: boolean;
+}
+
 export interface WorkplacePreset {
   id: string;
   name: string;
   startTime: string;
   endTime: string;
   daysOff: string[]; // YYYY-MM-DD（休みの日）
+  useSpecialHours?: boolean;
+  specialStartTime?: string; // 土日祝
+  specialEndTime?: string; // 土日祝
+  patterns?: WorkplacePattern[];
 }
 
 export interface ShiftOverride {

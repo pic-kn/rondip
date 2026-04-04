@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Dimensions, Linking, Modal, TextInput,
+  Dimensions, Linking, Modal, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
@@ -503,8 +503,13 @@ export default function CalendarScreen() {
       )}
 
       <Modal visible={!!editor} transparent animationType="slide" onRequestClose={closeEditor}>
-        <View style={styles.editorOverlay}>
+        <KeyboardAvoidingView
+          style={styles.editorOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+        >
           <View style={styles.editorSheet}>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.editorContent}>
             <View style={styles.editorHeader}>
               <Text style={styles.editorTitle}>{editor?.type === 'shift' ? '勤務を調整' : '予定を調整'}</Text>
               <TouchableOpacity onPress={closeEditor}>
@@ -615,8 +620,9 @@ export default function CalendarScreen() {
                 <Text style={styles.primaryActionText}>保存</Text>
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -779,8 +785,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 18,
     paddingBottom: 32,
-    gap: 14,
+    maxHeight: '85%',
   },
+  editorContent: { gap: 14, paddingBottom: 8 },
   editorHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

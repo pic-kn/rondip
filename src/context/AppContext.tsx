@@ -4,17 +4,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Task, AppEvent, ChatMessage, ChatSession, Routine,
   ShiftEntry, WorkplacePreset, WorkSchedule, SleepSettings,
-  ShiftOverride,
+  ShiftOverride, WorkplacePattern,
   DeviceAsset, FutureExpense, FinancialAssets, BudgetMessage,
   BudgetSession, BudgetTransaction
 } from '../types';
 import { toLocalDateStr, calcAvailableMinutes } from '../utils/timeCalc';
+import { isJapaneseHoliday } from '../utils/japaneseHoliday';
 import { scheduleTaskReminder, cancelNotification } from '../services/notifications';
 
 export type { 
   Task, AppEvent, ChatMessage, ChatSession, Routine, 
   ShiftEntry, WorkplacePreset, WorkSchedule, SleepSettings, 
-  ShiftOverride,
+  ShiftOverride, WorkplacePattern,
   DeviceAsset, FutureExpense, FinancialAssets, BudgetMessage, 
   BudgetSession, BudgetTransaction 
 };
@@ -45,18 +46,96 @@ const DEFAULT_SLEEP_SETTINGS: SleepSettings = {
   bedTime: '23:00',
 };
 
+const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
+const BUSINESS_WEEKDAYS = [1, 2, 3, 4, 5];
+const WEEKEND_DAYS = [0, 6];
+
+const normalizePattern = (pattern: WorkplacePattern, fallbackStart: string, fallbackEnd: string, index: number): WorkplacePattern => ({
+  ...pattern,
+  id: pattern.id || `pattern-${index}`,
+  name: pattern.name || `パターン${index + 1}`,
+  startTime: pattern.startTime || fallbackStart,
+  endTime: pattern.endTime || fallbackEnd,
+  weekdays: Array.from(new Set((pattern.weekdays || []).sort((a, b) => a - b))),
+  appliesOnHolidays: !!pattern.appliesOnHolidays,
+});
+
+const buildWorkplacePatterns = (wp: WorkplacePreset): WorkplacePattern[] => {
+  if (wp.patterns && wp.patterns.length > 0) {
+    return wp.patterns.map((pattern, index) => normalizePattern(pattern, wp.startTime, wp.endTime, index));
+  }
+
+  if (wp.useSpecialHours && wp.specialStartTime && wp.specialEndTime) {
+    return [
+      {
+        id: 'pattern-default',
+        name: '通常勤務',
+        startTime: wp.startTime,
+        endTime: wp.endTime,
+        weekdays: BUSINESS_WEEKDAYS,
+        appliesOnHolidays: false,
+      },
+      {
+        id: 'pattern-special',
+        name: '土日祝勤務',
+        startTime: wp.specialStartTime,
+        endTime: wp.specialEndTime,
+        weekdays: WEEKEND_DAYS,
+        appliesOnHolidays: true,
+      },
+    ];
+  }
+
+  return [
+    {
+      id: 'pattern-default',
+      name: '通常勤務',
+      startTime: wp.startTime,
+      endTime: wp.endTime,
+      weekdays: ALL_WEEKDAYS,
+      appliesOnHolidays: false,
+    },
+  ];
+};
+
 const normalizeWorkSchedule = (raw?: Partial<WorkSchedule> | null): WorkSchedule => ({
   ...DEFAULT_WORK_SCHEDULE,
   ...raw,
   workplaces: (raw?.workplaces || []).map(wp => ({
     ...wp,
     daysOff: wp.daysOff || [],
+    useSpecialHours: !!wp.useSpecialHours,
+    specialStartTime: wp.specialStartTime || wp.startTime,
+    specialEndTime: wp.specialEndTime || wp.endTime,
+    patterns: buildWorkplacePatterns(wp),
   })),
   shiftOverrides: (raw?.shiftOverrides || []).map(ov => ({
     ...ov,
     isDayOff: !!ov.isDayOff,
   })),
 });
+
+const resolveWorkplacePattern = (wp: WorkplacePreset, date: string): WorkplacePattern | null => {
+  const patterns = buildWorkplacePatterns(wp);
+  const day = new Date(`${date}T12:00:00`).getDay();
+  const isHoliday = isJapaneseHoliday(date);
+
+  const ranked = patterns
+    .map((pattern, index) => {
+      const weekdayMatch = pattern.weekdays.includes(day);
+      const holidayMatch = isHoliday && pattern.appliesOnHolidays;
+      if (!weekdayMatch && !holidayMatch) return null;
+      return {
+        pattern,
+        index,
+        score: holidayMatch ? 2 : 1,
+      };
+    })
+    .filter((entry): entry is { pattern: WorkplacePattern; index: number; score: number } => !!entry)
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  return ranked[0]?.pattern || null;
+};
 
 const resolveShiftForDate = (ws: WorkSchedule, date: string): ShiftEntry | null => {
   if (ws.type === 'fixed') {
@@ -92,12 +171,14 @@ const resolveShiftForDate = (ws: WorkSchedule, date: string): ShiftEntry | null 
   }
 
   if ((wp.daysOff || []).includes(date)) return null;
+  const pattern = resolveWorkplacePattern(wp, date);
+  if (!pattern) return null;
 
   return {
     id: `shift-${date}`,
     date,
-    startTime: wp.startTime,
-    endTime: wp.endTime,
+    startTime: pattern.startTime,
+    endTime: pattern.endTime,
     workplaceId: wp.id,
     name: wp.name,
   };
@@ -309,7 +390,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             const [eH, eM] = shiftInfo.endTime.split(':').map(Number);
             loadedEvents.push({
               id: `shift-${today}`,
-              title: shiftInfo.name,
+              title: shiftInfo.name || '勤務',
               date: today,
               timeString: shiftInfo.startTime,
               estimatedMinutes: (eH * 60 + eM) - (sH * 60 + sM),
@@ -353,7 +434,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       const [eH, eM] = shiftInfo.endTime.split(':').map(Number);
       return [...without, {
         id: `shift-${today}`,
-        title: shiftInfo.name,
+        title: shiftInfo.name || '勤務',
         date: today,
         timeString: shiftInfo.startTime,
         estimatedMinutes: (eH * 60 + eM) - (sH * 60 + sM),
@@ -611,9 +692,22 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const addWorkplace = (workplace: Omit<WorkplacePreset, 'id'>) => {
     const newId = `wp-${Date.now()}`;
+    const patterns = buildWorkplacePatterns({
+      ...workplace,
+      id: newId,
+      daysOff: workplace.daysOff || [],
+    });
     setWorkSchedule(prev => ({
       ...prev,
-      workplaces: [...(prev.workplaces || []), { ...workplace, id: newId, daysOff: workplace.daysOff || [] }],
+      workplaces: [...(prev.workplaces || []), {
+        ...workplace,
+        id: newId,
+        daysOff: workplace.daysOff || [],
+        useSpecialHours: !!workplace.useSpecialHours,
+        specialStartTime: workplace.specialStartTime || workplace.startTime,
+        specialEndTime: workplace.specialEndTime || workplace.endTime,
+        patterns,
+      }],
       activeWorkplaceId: prev.activeWorkplaceId ?? newId,
     }));
   };

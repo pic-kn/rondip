@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import * as Haptics from 'expo-haptics';
 import { View, StyleSheet, TextInput, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, Text, ActivityIndicator, Modal, Animated, FlatList } from 'react-native';
+import { Clipboard } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
@@ -197,6 +198,7 @@ export default function BrainDumpScreen() {
   const currentCity = locationData.city;
   const scrollViewRef = useRef<ScrollView>(null);
   const [lastFailedText, setLastFailedText] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
   const [weather, setWeather] = useState<string>('晴れ'); 
 
@@ -259,6 +261,15 @@ export default function BrainDumpScreen() {
       useNativeDriver: true,
     }).start();
   }, []);
+
+  const handleCopyMessage = async (msg: ChatMessage) => {
+    Clipboard.setString(msg.content);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCopiedMessageId(msg.id);
+    setTimeout(() => {
+      setCopiedMessageId(current => current === msg.id ? null : current);
+    }, 1500);
+  };
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleScheduleCheck = () => {
@@ -879,6 +890,19 @@ export default function BrainDumpScreen() {
                 <Text style={[styles.messageText, msg.role === 'user' && styles.userMessageText]}>
                   {msg.content}
                 </Text>
+                <View style={styles.messageFooter}>
+                  {copiedMessageId === msg.id && (
+                    <Text style={styles.copiedLabel}>コピーしました</Text>
+                  )}
+                  <TouchableOpacity
+                    style={styles.copyButton}
+                    onPress={() => handleCopyMessage(msg)}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons name="copy-outline" size={14} color={colors.textSecondary} />
+                    <Text style={styles.copyButtonText}>コピー</Text>
+                  </TouchableOpacity>
+                </View>
                 {renderActionCard(msg)}
               </View>
             </View>
@@ -1091,6 +1115,10 @@ const styles = StyleSheet.create({
   botBubble: { backgroundColor: 'transparent', paddingHorizontal: 4 },
   messageText: { ...typography.body, color: colors.text, lineHeight: 24 },
   userMessageText: { color: colors.text },
+  messageFooter: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 8, gap: 8 },
+  copiedLabel: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
+  copyButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 },
+  copyButtonText: { fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
   actionCard: { 
     flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, padding: 16, marginTop: 12, borderWidth: 1,
     borderColor: colors.borderSubtle, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
