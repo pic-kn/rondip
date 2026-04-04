@@ -224,6 +224,7 @@ interface AppContextProps {
   updateWorkSchedule: (ws: Partial<WorkSchedule>) => void;
   updateSleepSettings: (ss: Partial<SleepSettings>) => void;
   addWorkplace: (workplace: Omit<WorkplacePreset, 'id'>) => void;
+  updateWorkplace: (id: string, updates: Omit<WorkplacePreset, 'id'>) => void;
   deleteWorkplace: (id: string) => void;
   setActiveWorkplace: (id: string | null) => void;
   addDayOff: (workplaceId: string, date: string) => void;
@@ -712,6 +713,28 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }));
   };
 
+  const updateWorkplace = (id: string, updates: Omit<WorkplacePreset, 'id'>) => {
+    const patterns = buildWorkplacePatterns({
+      ...updates,
+      id,
+      daysOff: updates.daysOff || [],
+    });
+    setWorkSchedule(prev => ({
+      ...prev,
+      workplaces: (prev.workplaces || []).map(wp =>
+        wp.id === id
+          ? {
+              ...wp,
+              ...updates,
+              id,
+              daysOff: updates.daysOff || [],
+              patterns,
+            }
+          : wp
+      ),
+    }));
+  };
+
   const deleteWorkplace = (id: string) =>
     setWorkSchedule(prev => ({
       ...prev,
@@ -815,7 +838,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       spareTime, setSpareTime,
       routines, addRoutine, syncRoutines,
       workSchedule, sleepSettings, updateWorkSchedule, updateSleepSettings,
-      addWorkplace, deleteWorkplace, setActiveWorkplace, addDayOff, removeDayOff, addShiftOverride, removeShiftOverride, getTodayWorkShift, getAvailableMinutes,
+      addWorkplace, updateWorkplace, deleteWorkplace, setActiveWorkplace, addDayOff, removeDayOff, addShiftOverride, removeShiftOverride, getTodayWorkShift, getAvailableMinutes,
       financialAssets, updateFinancialAssets, budgetTransactions, addBudgetTransaction, removeBudgetTransaction, paydayDate, updatePaydayDate,
       budgetSessions, currentBudgetSessionId, budgetMessages, addBudgetMessage, createNewBudgetSession, switchBudgetSession, deleteBudgetSession,
       clearData,

@@ -52,7 +52,7 @@ export default function ShiftScreen() {
   const {
     workSchedule, sleepSettings,
     updateWorkSchedule, updateSleepSettings,
-    addWorkplace, deleteWorkplace, setActiveWorkplace,
+    addWorkplace, updateWorkplace, deleteWorkplace, setActiveWorkplace,
     addDayOff, removeDayOff, addShiftOverride, removeShiftOverride,
   } = useAppContext();
   const workplaces = workSchedule.workplaces || [];
@@ -61,6 +61,7 @@ export default function ShiftScreen() {
   const [showAddWorkplace, setShowAddWorkplace] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPatterns, setNewPatterns] = useState<PatternDraft[]>([makePatternDraft(0, { name: '通常勤務' })]);
+  const [editingWorkplaceId, setEditingWorkplaceId] = useState<string | null>(null);
 
   const [addingDayOffFor, setAddingDayOffFor] = useState<string | null>(null);
   const [newDayOff, setNewDayOff] = useState(toLocalDateStr(new Date()));
@@ -106,7 +107,29 @@ export default function ShiftScreen() {
   const resetWorkplaceForm = () => {
     setNewName('');
     setShowAddWorkplace(false);
+    setEditingWorkplaceId(null);
     setNewPatterns([makePatternDraft(0, { name: '通常勤務' })]);
+  };
+
+  const startEditWorkplace = (workplaceId: string) => {
+    const workplace = workplaces.find(wp => wp.id === workplaceId);
+    if (!workplace) return;
+    setActiveWorkplace(workplaceId);
+    setEditingWorkplaceId(workplaceId);
+    setShowAddWorkplace(true);
+    setNewName(workplace.name);
+    setNewPatterns(
+      (workplace.patterns || []).map((pattern, index) =>
+        makePatternDraft(index, {
+          id: pattern.id,
+          name: pattern.name,
+          startTime: pattern.startTime,
+          endTime: pattern.endTime,
+          weekdays: pattern.weekdays,
+          appliesOnHolidays: !!pattern.appliesOnHolidays,
+        })
+      )
+    );
   };
 
   return (
@@ -247,7 +270,7 @@ export default function ShiftScreen() {
                   disabled={!canSaveWorkplace}
                   onPress={() => {
                     const primaryPattern = newPatterns[0];
-                    addWorkplace({
+                    const payload = {
                       name: newName.trim(),
                       startTime: primaryPattern.startTime,
                       endTime: primaryPattern.endTime,
@@ -260,11 +283,20 @@ export default function ShiftScreen() {
                         weekdays: pattern.weekdays,
                         appliesOnHolidays: pattern.appliesOnHolidays,
                       })),
-                    });
+                    };
+                    if (editingWorkplaceId) {
+                      const current = workplaces.find(wp => wp.id === editingWorkplaceId);
+                      updateWorkplace(editingWorkplaceId, {
+                        ...payload,
+                        daysOff: current?.daysOff || [],
+                      });
+                    } else {
+                      addWorkplace(payload);
+                    }
                     resetWorkplaceForm();
                   }}
                 >
-                  <Text style={styles.saveBtnText}>保存</Text>
+                  <Text style={styles.saveBtnText}>{editingWorkplaceId ? '更新' : '保存'}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -277,7 +309,7 @@ export default function ShiftScreen() {
               <TouchableOpacity
                 key={wp.id}
                 style={[styles.workplaceRow, workSchedule.activeWorkplaceId === wp.id && styles.workplaceRowActive]}
-                onPress={() => setActiveWorkplace(wp.id)}
+                onPress={() => startEditWorkplace(wp.id)}
                 activeOpacity={0.7}
               >
                 <View style={styles.workplaceInfo}>
