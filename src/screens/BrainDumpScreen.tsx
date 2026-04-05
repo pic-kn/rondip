@@ -190,6 +190,7 @@ export default function BrainDumpScreen() {
   } = useAppContext();
 
   const [dismissedEventIds, setDismissedEventIds] = useState<Set<string>>(new Set());
+  const [recentlyCompletedTaskIds, setRecentlyCompletedTaskIds] = useState<Set<string>>(new Set());
   const [cardHeight, setCardHeight] = useState(0);
   const cardAnim = useRef(new Animated.Value(0)).current;
   const lastSuggestionFetch = useRef<number>(0);
@@ -857,8 +858,11 @@ export default function BrainDumpScreen() {
     .sort((a, b) => a.timeString.localeCompare(b.timeString))
     .slice(0, 1);
   const priorityTasks = tasks
-    .filter(t => t.status === 'todo')
-    .sort((a, b) => a.estimatedMinutes - b.estimatedMinutes)
+    .filter(t => t.status === 'todo' || recentlyCompletedTaskIds.has(t.id))
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === 'todo' ? -1 : 1;
+      return a.estimatedMinutes - b.estimatedMinutes;
+    })
     .slice(0, 1);
   const hasItems = nextEvent.length > 0 || priorityTasks.length > 0;
 
@@ -973,7 +977,13 @@ export default function BrainDumpScreen() {
           }]}
         >
           <View style={styles.todayHeader}>
-            <Text style={styles.sectionTitle}>今やるべきこと</Text>
+            <TouchableOpacity
+              style={styles.todayHeaderLink}
+              onPress={() => navigation.navigate('タスク')}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.sectionTitle}>今やるべきこと</Text>
+            </TouchableOpacity>
             <Text style={[styles.freeTimeLabel, { color: freeMinutes >= 0 ? colors.textSecondary : '#ef4444' }]}>
               {freeMinutes >= 0 ? `余裕 +${formatDur(freeMinutes)}` : `超過 ${formatDur(Math.abs(freeMinutes))}`}
             </Text>
@@ -988,10 +998,16 @@ export default function BrainDumpScreen() {
             <TouchableOpacity
               key={e.id}
               style={styles.miniTaskRow}
-              onPress={() => setDismissedEventIds(prev => new Set([...prev, e.id]))}
+              onPress={() => navigation.navigate('タスク')}
               activeOpacity={0.6}
             >
-              <View style={styles.checkbox} />
+              <TouchableOpacity
+                style={styles.checkboxButton}
+                onPress={() => setDismissedEventIds(prev => new Set([...prev, e.id]))}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="ellipse-outline" size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
               <Text style={styles.miniTaskText} numberOfLines={1}>{e.timeString} {e.title}</Text>
               {e.estimatedMinutes && <Text style={styles.miniTaskDuration}>{e.estimatedMinutes}分</Text>}
             </TouchableOpacity>
@@ -1000,12 +1016,39 @@ export default function BrainDumpScreen() {
             <TouchableOpacity
               key={t.id}
               style={styles.miniTaskRow}
-              onPress={() => completeTask(t.id)}
+              onPress={() => navigation.navigate('タスク')}
               activeOpacity={0.6}
             >
-              <View style={styles.checkbox} />
-              <Text style={styles.miniTaskText} numberOfLines={1}>{t.title}</Text>
-              {t.estimatedMinutes > 0 && <Text style={styles.miniTaskDuration}>{t.estimatedMinutes}分</Text>}
+              <TouchableOpacity
+                style={styles.checkboxButton}
+                onPress={() => {
+                  if (t.status === 'completed') {
+                    updateTask(t.id, { status: 'todo' });
+                    setRecentlyCompletedTaskIds(prev => {
+                      const next = new Set(prev);
+                      next.delete(t.id);
+                      return next;
+                    });
+                    return;
+                  }
+
+                  completeTask(t.id);
+                  setRecentlyCompletedTaskIds(prev => new Set(prev).add(t.id));
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={t.status === 'completed' ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={18}
+                  color={colors.textSecondary}
+                />
+              </TouchableOpacity>
+              <Text style={[styles.miniTaskText, t.status === 'completed' && styles.miniTaskTextDone]} numberOfLines={1}>{t.title}</Text>
+              {t.estimatedMinutes > 0 && (
+                <Text style={[styles.miniTaskDuration, t.status === 'completed' && styles.miniTaskDurationDone]}>
+                  {t.estimatedMinutes}分
+                </Text>
+              )}
             </TouchableOpacity>
           ))}
         </Animated.View>
@@ -1095,14 +1138,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08, shadowRadius: 24, elevation: 8, zIndex: 10, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.5)',
   },
   todayHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  todayHeaderLink: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   sectionTitle: { ...typography.caption, fontWeight: '800', color: colors.textSecondary, letterSpacing: 1 },
   freeTimeLabel: { fontSize: 11, fontWeight: '600' },
   timeBar: { height: 3, backgroundColor: colors.borderSubtle, borderRadius: 2, marginBottom: 10, overflow: 'hidden' },
   timeBarFill: { height: 3, borderRadius: 2 },
   miniTaskRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
+  checkboxButton: { marginRight: 12 },
   checkbox: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: colors.textSecondary, flexShrink: 0 },
   miniTaskText: { ...typography.body, fontSize: 14, color: colors.text, marginLeft: 10, flex: 1 },
+  miniTaskTextDone: { color: colors.textSecondary, textDecorationLine: 'line-through' },
   miniTaskDuration: { ...typography.caption, color: colors.textSecondary, marginLeft: 8, fontWeight: '600', flexShrink: 0 },
+  miniTaskDurationDone: { textDecorationLine: 'line-through' },
   chatHistoryContainer: { paddingTop: 10 },
   messageWrapper: { flexDirection: 'row', marginBottom: 16 },
   userWrapper: { justifyContent: 'flex-end' },

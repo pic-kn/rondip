@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Dimensions, Linking, Modal, TextInput, KeyboardAvoidingView, Platform, NativeSyntheticEvent, NativeScrollEvent,
+  Dimensions, Linking, Modal, TextInput, KeyboardAvoidingView, Platform, NativeSyntheticEvent, NativeScrollEvent, PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
@@ -99,6 +99,32 @@ export default function CalendarScreen() {
       shouldResetTimelinePositionRef.current = true;
     }
   };
+
+  const openTimelineForDate = (dateStr: string) => {
+    selectDate(dateStr, { syncTimeline: true });
+    setViewMode('timeline');
+  };
+
+  const modeSwipeResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          Math.abs(gestureState.dx) > 20 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2,
+        onPanResponderRelease: (_, gestureState) => {
+          const isHorizontalSwipe = Math.abs(gestureState.dx) > 60 && Math.abs(gestureState.dy) < 40;
+          if (!isHorizontalSwipe) return;
+
+          if (viewMode === 'timeline' && gestureState.dx > 0) {
+            setViewMode('month');
+          }
+
+          if (viewMode === 'month' && gestureState.dx < 0) {
+            setViewMode('timeline');
+          }
+        },
+      }),
+    [viewMode]
+  );
 
   const openEventEditor = (event: AppEvent) => {
     setEditor({ type: 'event', event });
@@ -265,18 +291,29 @@ export default function CalendarScreen() {
   };
 
   // 空き時間スロットを計算
-  const calcFreeSlots = (dayEvents: typeof events) => {
-    const sorted = [...dayEvents].sort((a, b) => a.timeString.localeCompare(b.timeString));
+  const calcFreeSlots = (dayEvents: typeof events, shift?: ShiftEntry | null) => {
+    const occupied = [
+      ...dayEvents.map(event => {
+        const startMin = timeToMinutes(event.timeString);
+        return {
+          start: startMin,
+          end: startMin + (event.estimatedMinutes || 60),
+        };
+      }),
+      ...(shift ? [{
+        start: timeToMinutes(shift.startTime),
+        end: timeToMinutes(shift.endTime),
+      }] : []),
+    ].sort((a, b) => a.start - b.start);
+
     const slots: { start: number; end: number }[] = [];
     let prevEnd = TIMELINE_START * 60;
 
-    for (const event of sorted) {
-      const startMin = timeToMinutes(event.timeString);
-      const endMin = startMin + (event.estimatedMinutes || 60);
-      if (startMin - prevEnd >= 15) {
-        slots.push({ start: prevEnd, end: startMin });
+    for (const block of occupied) {
+      if (block.start - prevEnd >= 15) {
+        slots.push({ start: prevEnd, end: block.start });
       }
-      prevEnd = Math.max(prevEnd, endMin);
+      prevEnd = Math.max(prevEnd, block.end);
     }
 
     // 最後のイベント後は24:00まで
@@ -324,8 +361,8 @@ export default function CalendarScreen() {
             const dayEvents = (groupedEvents[dateStr] || []).sort((a, b) =>
               a.timeString.localeCompare(b.timeString)
             );
-            const freeSlots = calcFreeSlots(dayEvents);
             const shift = getTodayWorkShift(dateStr);
+            const freeSlots = calcFreeSlots(dayEvents, shift);
             const dayOffset = TIMELINE_SECTION_HEIGHT * dayIndex;
             const timelineOffset = dayOffset + TIMELINE_DAY_HEADER_HEIGHT;
             const isToday = dateStr === toLocalDateString(now);
@@ -498,9 +535,10 @@ export default function CalendarScreen() {
         </View>
       </View>
 
-      {/* タイムライン */}
-      {viewMode === 'timeline' && (
-        <View style={styles.flex}>
+      <View style={styles.flex} {...modeSwipeResponder.panHandlers}>
+        {/* タイムライン */}
+        {viewMode === 'timeline' && (
+          <View style={styles.flex}>
           <View style={styles.timelineDateNav}>
             <TouchableOpacity onPress={() => selectDate(shiftDateString(selectedDate, -1), { syncTimeline: true })}>
               <Ionicons name="chevron-back" size={20} color={colors.text} />
@@ -512,12 +550,12 @@ export default function CalendarScreen() {
           </View>
           <WeekStrip />
           {renderTimeline()}
-        </View>
-      )}
+          </View>
+        )}
 
-      {/* 月カレンダー */}
-      {viewMode === 'month' && (
-        <View style={styles.flex}>
+        {/* 月カレンダー */}
+        {viewMode === 'month' && (
+          <View style={styles.flex}>
           <View style={styles.monthNav}>
             <TouchableOpacity onPress={() => changeMonth(-1)}>
               <Ionicons name="chevron-back" size={22} color={colors.text} />
@@ -543,7 +581,7 @@ export default function CalendarScreen() {
                 <TouchableOpacity
                   key={dStr}
                   style={styles.monthCell}
-                  onPress={() => selectDate(dStr, { syncTimeline: true })}
+                  onPress={() => openTimelineForDate(dStr)}
                 >
                   <View style={[
                     styles.monthDayInner,
@@ -567,8 +605,9 @@ export default function CalendarScreen() {
             <Text style={styles.listDateLabel}>{selectedDate.replace(/-/g, '/')} の予定</Text>
             {renderEventList(selectedDate)}
           </ScrollView>
-        </View>
-      )}
+          </View>
+        )}
+      </View>
 
       <Modal visible={!!editor} transparent animationType="slide" onRequestClose={closeEditor}>
         <KeyboardAvoidingView
@@ -804,6 +843,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 18,
     elevation: 2,
+    zIndex: 2,
   },
   eventBlockTitle: { fontSize: 12, lineHeight: 15, fontWeight: '700', color: colors.text, marginBottom: 1 },
   eventBlockLocation: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
@@ -823,6 +863,7 @@ const styles = StyleSheet.create({
     borderColor: '#E7E5DE',
     justifyContent: 'center',
     paddingHorizontal: 10,
+    zIndex: 0,
   },
   freeBlockText: {
     fontSize: 11,
@@ -861,7 +902,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingHorizontal: 10,
     paddingTop: 8,
-    zIndex: 0,
+    zIndex: 1,
   },
   shiftBlockText: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
   shiftCard: {

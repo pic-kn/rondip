@@ -41,7 +41,7 @@ export default function OnboardingScreen({ onComplete }: Props) {
   const [routines, setRoutines] = useState<DailyRoutineItem[]>(DEFAULT_ROUTINES);
   const [locationGranted, setLocationGranted] = useState(false);
   const [notifGranted, setNotifGranted] = useState(false);
-  const { addChatMessage, updateWorkSchedule, updateSleepSettings, addWorkplace, addEvent } = useAppContext();
+  const { addChatMessage, updateWorkSchedule, updateSleepSettings, addWorkplace } = useAppContext();
 
   // 固定スケジュール設定
   const [workType, setWorkType] = useState<'fixed' | 'shift'>('shift');
@@ -118,18 +118,8 @@ export default function OnboardingScreen({ onComplete }: Props) {
   };
 
   const finish = async () => {
-    // ルーティンイベントを今日分として即時追加
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    routines.filter(r => r.enabled).forEach(r => {
-      addEvent({
-        id: `routine-${r.id}-${todayStr}`,
-        title: r.label,
-        date: todayStr,
-        timeString: `${String(r.hour).padStart(2, '0')}:${String(r.minute).padStart(2, '0')}`,
-        estimatedMinutes: 30,
-      });
-    });
 
     // 今日がシフト勤務日なら即時追加
     if (workType === 'shift' && workplaceName && !selectedDaysOff.includes(todayStr)) {
